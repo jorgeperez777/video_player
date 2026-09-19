@@ -280,6 +280,27 @@ public class ReactExoplayerView extends FrameLayout implements
         this.cmcdConfigurationFactory = factory;
     }
 
+    /**
+     * Milliseconds the playback position is behind the live playback position, i.e. the
+     * window's default position (where ExoPlayer plays when it is "live", which already
+     * accounts for the target live offset). 0 means we are live; C.TIME_UNSET when not live.
+     */
+    private long getLiveOffsetMs(long positionMs) {
+        if (player == null || !player.isCurrentMediaItemLive()) {
+            return C.TIME_UNSET;
+        }
+        Timeline timeline = player.getCurrentTimeline();
+        if (timeline.isEmpty()) {
+            return C.TIME_UNSET;
+        }
+        Timeline.Window window = timeline.getWindow(player.getCurrentMediaItemIndex(), new Timeline.Window());
+        long livePositionMs = window.getDefaultPositionMs();
+        if (livePositionMs == C.TIME_UNSET) {
+            return C.TIME_UNSET;
+        }
+        return Math.max(0, livePositionMs - positionMs);
+    }
+
     private void updateProgress() {
         if (player != null) {
             if (exoPlayerView != null && isPlayingAd() && controls) {
@@ -298,7 +319,9 @@ public class ReactExoplayerView extends FrameLayout implements
                 lastPos = pos;
                 lastBufferDuration = bufferedDuration;
                 lastDuration = duration;
-                eventEmitter.onVideoProgress.invoke(pos, bufferedDuration, player.getDuration(), getPositionInFirstPeriodMsForCurrentWindow(pos));
+                boolean isLive = player.isCurrentMediaItemLive();
+                eventEmitter.onVideoProgress.invoke(pos, bufferedDuration, player.getDuration(),
+                        getPositionInFirstPeriodMsForCurrentWindow(pos), isLive, getLiveOffsetMs(pos));
             }
         }
     }
@@ -1503,6 +1526,7 @@ public class ReactExoplayerView extends FrameLayout implements
             // Properties that must be accessed on the main thread
             long duration = player.getDuration();
             long currentPosition = player.getCurrentPosition();
+            boolean isLive = player.isCurrentMediaItemLive();
             ArrayList<Track> audioTracks = getAudioTrackInfo();
             ArrayList<Track> textTracks  = getTextTrackInfo();
 
@@ -1515,7 +1539,7 @@ public class ReactExoplayerView extends FrameLayout implements
                         isUsingContentResolution = true;
                     }
                     eventEmitter.onVideoLoad.invoke(duration, currentPosition, width, height,
-                            audioTracks, textTracks, videoTracks, trackId );
+                            audioTracks, textTracks, videoTracks, trackId, isLive);
                     
                     updateSubtitleButtonVisibility();
                 });
@@ -1525,7 +1549,7 @@ public class ReactExoplayerView extends FrameLayout implements
             ArrayList<VideoTrack> videoTracks = getVideoTrackInfo();
 
             eventEmitter.onVideoLoad.invoke(duration, currentPosition, width, height,
-                    audioTracks, textTracks, videoTracks, trackId);
+                    audioTracks, textTracks, videoTracks, trackId, isLive);
 
             updateSubtitleButtonVisibility();
             refreshControlsStyles();

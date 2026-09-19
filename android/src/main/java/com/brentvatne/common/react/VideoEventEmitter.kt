@@ -65,10 +65,18 @@ class VideoEventEmitter {
         audioTracks: ArrayList<Track>,
         textTracks: ArrayList<Track>,
         videoTracks: ArrayList<VideoTrack>,
-        trackId: String?
+        trackId: String?,
+        isLive: Boolean
     ) -> Unit
     lateinit var onVideoError: (errorString: String, exception: Exception, errorCode: String) -> Unit
-    lateinit var onVideoProgress: (currentPosition: Long, bufferedDuration: Long, seekableDuration: Long, currentPlaybackTime: Double) -> Unit
+    lateinit var onVideoProgress: (
+        currentPosition: Long,
+        bufferedDuration: Long,
+        seekableDuration: Long,
+        currentPlaybackTime: Double,
+        isLive: Boolean,
+        liveOffset: Long
+    ) -> Unit
     lateinit var onVideoBandwidthUpdate: (bitRateEstimate: Long, height: Int, width: Int, trackId: String?) -> Unit
     lateinit var onVideoPlaybackStateChanged: (isPlaying: Boolean, isSeeking: Boolean) -> Unit
     lateinit var onVideoSeek: (currentPosition: Long, seekTime: Long) -> Unit
@@ -103,10 +111,11 @@ class VideoEventEmitter {
             onVideoLoadStart = {
                 event.dispatch(EventTypes.EVENT_LOAD_START)
             }
-            onVideoLoad = { duration, currentPosition, videoWidth, videoHeight, audioTracks, textTracks, videoTracks, trackId ->
+            onVideoLoad = { duration, currentPosition, videoWidth, videoHeight, audioTracks, textTracks, videoTracks, trackId, isLive ->
                 event.dispatch(EventTypes.EVENT_LOAD) {
                     putDouble("duration", duration / 1000.0)
                     putDouble("currentTime", currentPosition / 1000.0)
+                    putBoolean("isLive", isLive)
 
                     val naturalSize: WritableMap = aspectRatioToNaturalSize(videoWidth, videoHeight)
                     putMap("naturalSize", naturalSize)
@@ -168,12 +177,15 @@ class VideoEventEmitter {
                     )
                 }
             }
-            onVideoProgress = { currentPosition, bufferedDuration, seekableDuration, currentPlaybackTime ->
+            onVideoProgress = { currentPosition, bufferedDuration, seekableDuration, currentPlaybackTime, isLive, liveOffset ->
                 event.dispatch(EventTypes.EVENT_PROGRESS) {
                     putDouble("currentTime", currentPosition / 1000.0)
                     putDouble("playableDuration", bufferedDuration / 1000.0)
                     putDouble("seekableDuration", seekableDuration / 1000.0)
                     putDouble("currentPlaybackTime", currentPlaybackTime)
+                    putBoolean("isLive", isLive)
+                    // Seconds behind the live playback position; -1 when unknown or not live.
+                    putDouble("liveOffset", if (liveOffset >= 0) liveOffset / 1000.0 else -1.0)
                 }
             }
             onVideoBandwidthUpdate = { bitRateEstimate, height, width, trackId ->

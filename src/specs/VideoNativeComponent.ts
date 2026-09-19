@@ -157,6 +157,8 @@ type SubtitleStyle = Readonly<{
 type OnLoadData = Readonly<{
   currentTime: Float;
   duration: Float;
+  /** True for live streams (HLS/DASH without a fixed duration). */
+  isLive?: boolean;
   naturalSize: Readonly<{
     width: Float;
     height: Float;
@@ -199,6 +201,14 @@ export type OnProgressData = Readonly<{
   currentTime: Float;
   playableDuration: Float;
   seekableDuration: Float;
+  /** True for live streams (HLS/DASH without a fixed duration). */
+  isLive?: boolean;
+  /**
+   * Seconds behind the live playback position (the position the player uses when
+   * it is "live", which already includes the player's target offset from the edge).
+   * 0 means live; -1 when not live or unknown.
+   */
+  liveOffset?: Float;
 }>;
 
 export type OnBandwidthUpdateData = Readonly<{

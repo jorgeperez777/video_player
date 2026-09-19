@@ -29,6 +29,8 @@ export type VideoTrack = OnVideoTracksData['videoTracks'][number];
 export type OnLoadData = Readonly<{
   currentTime: number;
   duration: number;
+  /** True for live streams (HLS/DASH without a fixed duration). */
+  isLive?: boolean;
   naturalSize: Readonly<{
     width: number;
     height: number;

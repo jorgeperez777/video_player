@@ -452,6 +452,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 "currentPlaybackTime": NSNumber(value: Double(currentPlaybackTime?.timeIntervalSince1970 ?? 0 * 1000)).int64Value,
                 "target": reactTag as Any,
                 "seekableDuration": RCTVideoUtils.calculateSeekableDuration(_player),
+                "isLive": RCTVideoUtils.isLiveItem(_player),
+                "liveOffset": RCTVideoUtils.calculateLiveOffset(_player),
             ])
         }
     }
@@ -1597,6 +1599,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 let textTracks = await RCTVideoUtils.getTextTrackInfo(self._player)
                 self.onVideoLoad?(["duration": NSNumber(value: duration),
                                    "currentTime": NSNumber(value: Float(CMTimeGetSeconds(_playerItem.currentTime()))),
+                                   "isLive": RCTVideoUtils.isLiveItem(_player),
                                    "canPlayReverse": NSNumber(value: _playerItem.canPlayReverse),
                                    "canPlayFastForward": NSNumber(value: _playerItem.canPlayFastForward),
                                    "canPlaySlowForward": NSNumber(value: _playerItem.canPlaySlowForward),

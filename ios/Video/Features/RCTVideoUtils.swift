@@ -125,6 +125,30 @@ enum RCTVideoUtils {
         return CMTime.invalid
     }
 
+    // True when the current item has an indefinite duration (HLS live / event streams).
+    static func isLiveItem(_ player: AVPlayer?) -> Bool {
+        guard let item = player?.currentItem else { return false }
+        return CMTIME_IS_INDEFINITE(item.duration)
+    }
+
+    // Seconds behind the live playback position (end of the seekable range minus the
+    // offset AVPlayer itself keeps from the edge), or -1 when not live/unknown. 0 = live.
+    static func calculateLiveOffset(_ player: AVPlayer?) -> NSNumber {
+        guard isLiveItem(player), let player, let item = player.currentItem else { return -1 }
+        let timeRange: CMTimeRange = RCTVideoUtils.playerItemSeekableTimeRange(player)
+        guard CMTIME_IS_NUMERIC(timeRange.duration) else { return -1 }
+        let liveEdge = CMTimeGetSeconds(CMTimeRangeGetEnd(timeRange))
+        var targetOffset = 0.0
+        if #available(iOS 13.0, tvOS 13.0, *) {
+            let recommended = item.recommendedTimeOffsetFromLive
+            if CMTIME_IS_NUMERIC(recommended) {
+                targetOffset = CMTimeGetSeconds(recommended)
+            }
+        }
+        let current = CMTimeGetSeconds(player.currentTime())
+        return NSNumber(value: max(0, liveEdge - targetOffset - current))
+    }
+
     static func calculateSeekableDuration(_ player: AVPlayer?) -> NSNumber {
         let timeRange: CMTimeRange = RCTVideoUtils.playerItemSeekableTimeRange(player)
         if CMTIME_IS_NUMERIC(timeRange.duration) {
