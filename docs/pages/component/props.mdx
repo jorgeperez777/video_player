@@ -1087,6 +1087,8 @@ Adjust the buffer settings. This prop takes an object with one or more of the pr
 
 Sets the minimum number of times to retry loading data before failing and reporting an error to the application. Useful for recovering from transient internet failures.
 
+Errors caused by the network being unavailable (DNS failure, connection refused/reset, timeouts) are not counted: the player keeps retrying every second until connectivity comes back. Only errors the server answers with (HTTP 4xx/5xx) give up after `minLoadRetryCount` attempts.
+
 Default: `3`. Retries `3` times.
 
 **Example:**
