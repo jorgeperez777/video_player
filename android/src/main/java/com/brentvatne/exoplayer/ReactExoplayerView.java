@@ -51,6 +51,7 @@ import androidx.media3.common.Timeline;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSource;
@@ -1606,7 +1607,33 @@ public class ReactExoplayerView extends FrameLayout implements
         if (format.codecs != null) videoTrack.setCodecs(format.codecs);
         videoTrack.setTrackId(format.id == null ? String.valueOf(trackIndex) : format.id);
         videoTrack.setIndex(trackIndex);
+        videoTrack.setSelected(isFormatPlaying(format));
         return videoTrack;
+    }
+
+    /** True if this is the video format the player is currently rendering (the ABR-chosen variant). */
+    private boolean isFormatPlaying(Format format) {
+        if (player == null) {
+            return false;
+        }
+        Format playing = player.getVideoFormat();
+        if (playing == null) {
+            return false;
+        }
+        if (playing.id != null && format.id != null) {
+            return playing.id.equals(format.id);
+        }
+        return playing.width == format.width
+                && playing.height == format.height
+                && playing.bitrate == format.bitrate;
+    }
+
+    @Override
+    public void onVideoSizeChanged(@NonNull VideoSize videoSize) {
+        // ABR switched variant (no onTracksChanged for that): refresh which video track is selected.
+        if (player != null && eventEmitter != null) {
+            eventEmitter.onVideoTracks.invoke(getVideoTrackInfo());
+        }
     }
 
     private ArrayList<VideoTrack> getVideoTrackInfo() {
