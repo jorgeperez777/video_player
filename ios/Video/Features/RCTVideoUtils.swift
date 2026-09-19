@@ -166,21 +166,27 @@ enum RCTVideoUtils {
         guard let item = player?.currentItem else { return [] }
         var tracks: [[String: Any]] = []
         if #available(iOS 15.0, tvOS 15.0, *) {
+            // `variants` only exists on AVURLAsset (HLS master playlists).
+            guard let asset = item.asset as? AVURLAsset else { return [] }
             let playingHeight = Int(item.presentationSize.height)
-            let variants = item.asset.variants
-            for (index, variant) in variants.enumerated() {
-                guard let size = variant.videoAttributes?.presentationSize, size.height > 0 else { continue }
-                let codecs = variant.videoAttributes?.codecTypes.map { fourCC($0) }.joined(separator: ",") ?? ""
-                tracks.append([
-                    "index": index,
-                    "trackId": String(index),
-                    "codecs": codecs,
-                    "width": Int(size.width),
-                    "height": Int(size.height),
-                    "bitrate": Int(variant.peakBitRate ?? 0),
-                    "selected": Int(size.height) == playingHeight,
-                    "rotation": 0,
-                ])
+            for (index, variant) in asset.variants.enumerated() {
+                guard let videoAttributes = variant.videoAttributes else { continue }
+                let size: CGSize = videoAttributes.presentationSize
+                let height = Int(size.height)
+                let width = Int(size.width)
+                if height <= 0 { continue }
+                let codecs: String = videoAttributes.codecTypes.map { fourCC($0) }.joined(separator: ",")
+                let bitrate: Int = Int(variant.peakBitRate ?? 0)
+                var track: [String: Any] = [:]
+                track["index"] = index
+                track["trackId"] = String(index)
+                track["codecs"] = codecs
+                track["width"] = width
+                track["height"] = height
+                track["bitrate"] = bitrate
+                track["selected"] = height == playingHeight
+                track["rotation"] = 0
+                tracks.append(track)
             }
         }
         return tracks
