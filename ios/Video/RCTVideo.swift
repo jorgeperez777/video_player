@@ -463,6 +463,10 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
 
     var isSetSourceOngoing = false
     var nextSource: NSDictionary?
+    /// Set once the view has been removed from the hierarchy (unmounted). A `setSrc` that is still
+    /// preparing its asset at that point must not create a player afterwards: nothing would own it
+    /// and the audio of the old source would keep playing on top of the next video.
+    private var _isRemoved = false
 
     func applyNextSource() {
         if self.nextSource != nil {
@@ -556,7 +560,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     }
 
     func setupPlayer(playerItem: AVPlayerItem) async throws {
-        if !isSetSourceOngoing {
+        if !isSetSourceOngoing || _isRemoved {
             DebugLog("setSrc has been canceled last step")
             return
         }
@@ -639,6 +643,9 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
 
     @objc
     func setSrc(_ source: NSDictionary!) {
+        if _isRemoved {
+            return
+        }
         if self.isSetSourceOngoing || self.nextSource != nil {
             DebugLog("setSrc buffer request")
             self._player?.replaceCurrentItem(with: nil)
@@ -683,11 +690,15 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                     guard let self else { throw NSError(domain: "", code: 0, userInfo: nil) }
 
                     let playerItem = try await self.preparePlayerItem()
+                    if self._isRemoved {
+                        DebugLog("setSrc cancelled: view was removed while preparing the source")
+                        return
+                    }
                     try await self.setupPlayer(playerItem: playerItem)
                 } catch {
                     DebugLog("An error occurred: \(error.localizedDescription)")
 
-                    if let self {
+                    if let self, !self._isRemoved {
                         self.onVideoError?(["error": error.localizedDescription])
                         self.isSetSourceOngoing = false
                         self.applyNextSource()
@@ -1477,6 +1488,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     // MARK: - Lifecycle
 
     override func removeFromSuperview() {
+        // Cancel any in-flight setSrc so it does not create a player after we tear down.
+        _isRemoved = true
+        isSetSourceOngoing = false
+        nextSource = nil
+
         self._player?.replaceCurrentItem(with: nil)
         if let player = _player {
             player.pause()
