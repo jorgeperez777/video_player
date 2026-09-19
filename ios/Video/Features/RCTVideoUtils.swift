@@ -157,6 +157,43 @@ enum RCTVideoUtils {
         return 0
     }
 
+    /**
+     * Video "tracks" for HLS = the variants of the master playlist (iOS 15+). Mirrors the
+     * Android payload of onVideoTracks: index, trackId, codecs, width, height, bitrate,
+     * selected (the variant currently rendered, matched by presentationSize height).
+     */
+    static func getVideoTrackInfo(_ player: AVPlayer?) -> [[String: Any]] {
+        guard let item = player?.currentItem else { return [] }
+        var tracks: [[String: Any]] = []
+        if #available(iOS 15.0, tvOS 15.0, *) {
+            let playingHeight = Int(item.presentationSize.height)
+            let variants = item.asset.variants
+            for (index, variant) in variants.enumerated() {
+                guard let size = variant.videoAttributes?.presentationSize, size.height > 0 else { continue }
+                let codecs = variant.videoAttributes?.codecTypes.map { fourCC($0) }.joined(separator: ",") ?? ""
+                tracks.append([
+                    "index": index,
+                    "trackId": String(index),
+                    "codecs": codecs,
+                    "width": Int(size.width),
+                    "height": Int(size.height),
+                    "bitrate": Int(variant.peakBitRate ?? 0),
+                    "selected": Int(size.height) == playingHeight,
+                    "rotation": 0,
+                ])
+            }
+        }
+        return tracks
+    }
+
+    private static func fourCC(_ code: FourCharCode) -> String {
+        let bytes: [UInt8] = [
+            UInt8((code >> 24) & 0xFF), UInt8((code >> 16) & 0xFF),
+            UInt8((code >> 8) & 0xFF), UInt8(code & 0xFF),
+        ]
+        return String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespaces)
+    }
+
     static func getAudioTrackInfo(_ player: AVPlayer?) async -> [AnyObject] {
         guard let player, let asset = player.currentItem?.asset else {
             return []

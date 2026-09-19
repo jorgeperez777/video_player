@@ -592,9 +592,9 @@ Triggered when available text (subtitle) tracks change.
 
 ### `onVideoTracks`
 
-<PlatformsList types={['Android']} />
+<PlatformsList types={['Android', 'iOS']} />
 
-Triggered when video tracks change.
+Triggered when video tracks change, and when the ABR switches to another variant (the `selected` flag is refreshed). On iOS (15+) the tracks are the HLS variants of the master playlist.
 
 **Payload:**
 | Property | Type    | Description                       |

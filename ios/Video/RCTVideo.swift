@@ -34,6 +34,8 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     private var _volume: Float = 1.0
     private var _rate: Float = 1.0
     private var _maxBitRate: Float?
+    // selectedVideoTrack prop ({type: auto|resolution|index, value}); applied via preferredMaximumResolution.
+    private var _selectedVideoTrack: NSDictionary?
 
     private var _automaticallyWaitsToMinimizeStalling = true
     private var _muted = false
@@ -131,6 +133,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     @objc var onReceiveAdEvent: RCTDirectEventBlock?
     @objc var onTextTracks: RCTDirectEventBlock?
     @objc var onAudioTracks: RCTDirectEventBlock?
+    @objc var onVideoTracks: RCTDirectEventBlock?
     @objc var onTextTrackDataChanged: RCTDirectEventBlock?
 
     @objc
@@ -567,6 +570,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
         if let maxBitRate = _maxBitRate {
             _playerItem?.preferredPeakBitRate = Double(maxBitRate)
         }
+        applySelectedVideoTrack()
 
         if _player == nil {
             _player = AVPlayer()
@@ -961,6 +965,46 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
     func setMaxBitRate(_ maxBitRate: Float) {
         _maxBitRate = maxBitRate
         _playerItem?.preferredPeakBitRate = Double(maxBitRate)
+    }
+
+    @objc
+    func setSelectedVideoTrack(_ selectedVideoTrack: NSDictionary?) {
+        _selectedVideoTrack = selectedVideoTrack
+        applySelectedVideoTrack()
+    }
+
+    /**
+     * AVPlayer has no explicit variant selector; the closest is capping the resolution with
+     * preferredMaximumResolution (iOS 11+). "auto" removes the cap. If the chosen height is
+     * not among the variants the cap is still applied, so AVPlayer picks the nearest lower one.
+     */
+    private func applySelectedVideoTrack() {
+        guard let item = _playerItem else { return }
+        let type = _selectedVideoTrack?["type"] as? String ?? "auto"
+        let valueString = _selectedVideoTrack?["value"] as? String
+        let value = valueString.flatMap { Int($0) } ?? (_selectedVideoTrack?["value"] as? NSNumber)?.intValue
+
+        var target: CGSize = .zero // .zero = no limit (auto)
+        switch type {
+        case "resolution":
+            if let height = value, height > 0 {
+                // Look up the width of the matching variant so the cap is not narrower than needed.
+                let match = RCTVideoUtils.getVideoTrackInfo(_player).first { ($0["height"] as? Int) == height }
+                let width = match?["width"] as? Int ?? Int(Double(height) * 16.0 / 9.0)
+                target = CGSize(width: width, height: height)
+            }
+        case "index":
+            if let index = value {
+                let tracks = RCTVideoUtils.getVideoTrackInfo(_player)
+                if index >= 0, index < tracks.count,
+                   let w = tracks[index]["width"] as? Int, let h = tracks[index]["height"] as? Int {
+                    target = CGSize(width: w, height: h)
+                }
+            }
+        default: // "auto", "disabled" (not supported on iOS)
+            break
+        }
+        item.preferredMaximumResolution = target
     }
 
     @objc
@@ -1613,6 +1657,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                                    ],
                                    "audioTracks": audioTracks,
                                    "textTracks": extractJsonWithIndex(from: source.textTracks) ?? textTracks.map(\.json),
+                                   "videoTracks": RCTVideoUtils.getVideoTrackInfo(self._player),
                                    "target": self.reactTag as Any])
             }
 
@@ -1826,6 +1871,21 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 self.onAudioTracks?(["audioTracks": audioTracks])
             }
         }
+
+        emitVideoTracks()
+    }
+
+    func handlePresentationSizeChange(playerItem _: AVPlayerItem, change _: NSKeyValueObservedChange<CGSize>) {
+        // ABR switched variant: refresh which video track is "selected".
+        emitVideoTracks()
+    }
+
+    private func emitVideoTracks() {
+        guard onVideoTracks != nil else { return }
+        let videoTracks = RCTVideoUtils.getVideoTrackInfo(_player)
+        if !videoTracks.isEmpty {
+            onVideoTracks?(["videoTracks": videoTracks])
+        }
     }
 
     func handleLegibleOutput(strings: [NSAttributedString]) {
@@ -2024,6 +2084,7 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
             if let maxBitRate = _maxBitRate {
                 _playerItem?.preferredPeakBitRate = Double(maxBitRate)
             }
+            applySelectedVideoTrack()
 
             _player.replaceCurrentItem(with: playerItem)
 

@@ -367,7 +367,7 @@ export interface ReactVideoProps extends ReactVideoEvents, ViewProps {
   showNotificationControls?: boolean; // Android, iOS
   selectedAudioTrack?: SelectedTrack;
   selectedTextTrack?: SelectedTrack;
-  selectedVideoTrack?: SelectedVideoTrack; // android
+  selectedVideoTrack?: SelectedVideoTrack; // android, ios (15+, resolution cap)
   subtitleStyle?: SubtitleStyle; // android
   shutterColor?: string; // Android
   /** @deprecated Use source.textTracks */

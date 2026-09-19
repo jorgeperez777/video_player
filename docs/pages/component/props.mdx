@@ -747,9 +747,11 @@ If no matching track is found, no subtitles will be displayed. If multiple track
 
 ### `selectedVideoTrack`
 
-<PlatformsList types={['Android']} />
+<PlatformsList types={['Android', 'iOS']} />
 
 Configures which video track should be played. By default, the player uses Adaptive Bitrate Streaming (ABR) to automatically select the best stream based on available bandwidth.
+
+On iOS (15+) AVPlayer has no explicit variant selector: `resolution` / `index` are applied as a cap through `AVPlayerItem.preferredMaximumResolution`, so the player will use the requested variant or a lower one under poor bandwidth. `disabled` is not supported on iOS.
 
 ```javascript
 selectedVideoTrack={{

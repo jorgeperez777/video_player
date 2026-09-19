@@ -267,6 +267,6 @@ export interface ReactVideoEvents {
   onAudioTracks?: (e: OnAudioTracksData) => void; // Android
   onTextTracks?: (e: OnTextTracksData) => void; //Android
   onTextTrackDataChanged?: (e: OnTextTrackDataChangedData) => void; // iOS
-  onVideoTracks?: (e: OnVideoTracksData) => void; //Android
+  onVideoTracks?: (e: OnVideoTracksData) => void; //Android, iOS 15+
   onAspectRatio?: (e: OnVideoAspectRatioData) => void;
 }

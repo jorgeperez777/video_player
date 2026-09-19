@@ -27,6 +27,7 @@ protocol RCTPlayerObserverHandler: RCTPlayerObserverHandlerObjc {
     func handleExternalPlaybackActiveChange(player: AVPlayer, change: NSKeyValueObservedChange<Bool>)
     func handleViewControllerOverlayViewFrameChange(overlayView: UIView, change: NSKeyValueObservedChange<CGRect>)
     func handleTracksChange(playerItem: AVPlayerItem, change: NSKeyValueObservedChange<[AVPlayerItemTrack]>)
+    func handlePresentationSizeChange(playerItem: AVPlayerItem, change: NSKeyValueObservedChange<CGSize>)
     func handleLegibleOutput(strings: [NSAttributedString])
     func handlePictureInPictureEnter()
     func handlePictureInPictureExit()
@@ -114,6 +115,7 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
     private var _playerLayerReadyForDisplayObserver: NSKeyValueObservation?
     private var _playerViewControllerOverlayFrameObserver: NSKeyValueObservation?
     private var _playerTracksObserver: NSKeyValueObservation?
+    private var _playerPresentationSizeObserver: NSKeyValueObservation?
     private var _restoreUserInterfaceForPIPStopCompletionHandler: ((Bool) -> Void)?
 
     deinit {
@@ -178,6 +180,13 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
             options: [.new, .old],
             changeHandler: _handlers.handleTracksChange
         )
+
+        // observe presentation size (changes when ABR switches HLS variant)
+        _playerPresentationSizeObserver = playerItem.observe(
+            \.presentationSize,
+            options: [.new, .old],
+            changeHandler: _handlers.handlePresentationSizeChange
+        )
     }
 
     func removePlayerItemObservers() {
@@ -186,6 +195,7 @@ class RCTPlayerObserver: NSObject, AVPlayerItemMetadataOutputPushDelegate, AVPla
         _playerPlaybackLikelyToKeepUpObserver?.invalidate()
         _playerTimedMetadataObserver?.invalidate()
         _playerTracksObserver?.invalidate()
+        _playerPresentationSizeObserver?.invalidate()
     }
 
     func addPlayerViewControllerObservers() {
