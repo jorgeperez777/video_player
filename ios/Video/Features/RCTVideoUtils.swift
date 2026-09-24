@@ -125,6 +125,19 @@ enum RCTVideoUtils {
         return CMTime.invalid
     }
 
+    // Name of the external route playing the video (the Apple TV / AirPlay 2 display the
+    // user picked), or nil when playing locally. AVPlayer does not expose the route, but
+    // while it plays externally the audio session is routed to the same device.
+    static func externalPlaybackDeviceName() -> String? {
+        #if os(iOS) || os(tvOS)
+            let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+            let route = outputs.first { $0.portType == .airPlay } ?? outputs.first
+            return route?.portName
+        #else
+            return nil
+        #endif
+    }
+
     // True when the current item has an indefinite duration (HLS live / event streams).
     static func isLiveItem(_ player: AVPlayer?) -> Bool {
         guard let item = player?.currentItem else { return false }

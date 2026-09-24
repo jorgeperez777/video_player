@@ -285,6 +285,8 @@ export type OnVolumeChangeData = Readonly<{
 
 export type OnExternalPlaybackChangeData = Readonly<{
   isExternalPlaybackActive: boolean;
+  /** Name of the AirPlay route while it is active (iOS), null when playing locally. */
+  deviceName?: string | null;
 }>;
 
 export type OnGetLicenseData = Readonly<{

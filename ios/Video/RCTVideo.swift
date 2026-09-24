@@ -1771,7 +1771,11 @@ class RCTVideo: UIView, RCTVideoPlayerViewControllerDelegate, RCTPlayerObserverH
                 _playerViewController?.player = nil
             }
             guard onVideoExternalPlaybackChange != nil else { return }
-            onVideoExternalPlaybackChange?(["isExternalPlaybackActive": NSNumber(value: _player.isExternalPlaybackActive),
+            let isExternalPlaybackActive = _player.isExternalPlaybackActive
+            onVideoExternalPlaybackChange?(["isExternalPlaybackActive": NSNumber(value: isExternalPlaybackActive),
+                                            "deviceName": isExternalPlaybackActive
+                                                ? (RCTVideoUtils.externalPlaybackDeviceName() ?? NSNull())
+                                                : NSNull(),
                                             "target": reactTag as Any])
         #endif
     }

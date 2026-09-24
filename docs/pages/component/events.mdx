@@ -173,11 +173,13 @@ Called when external playback mode changes (e.g., Apple TV connection/disconnect
 | Property                 | Type    | Description                                |
 |-------------------------|--------|--------------------------------------------|
 | isExternalPlaybackActive | boolean | `true` if external playback is active |
+| deviceName               | string \| null | Name of the route playing the video while it is active (`null` when playing locally) |
 
 **Example:**
 ```javascript
 {
-  isExternalPlaybackActive: true
+  isExternalPlaybackActive: true,
+  deviceName: 'Apple TV'
 }
 ```
 
