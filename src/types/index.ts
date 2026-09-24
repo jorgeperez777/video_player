@@ -1,4 +1,5 @@
 export * from './Ads';
+export * from './airPlayButton';
 export * from './events';
 export {default as FilterType} from './FilterType';
 export * from './language';

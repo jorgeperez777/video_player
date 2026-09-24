@@ -1,0 +1,72 @@
+import PlatformsList from '../../components/PlatformsList/PlatformsList.tsx';
+
+# AirPlay
+
+<PlatformsList types={['iOS']} />
+
+`<Video>` already routes to AirPlay when the user picks an external route, as long as
+[`allowsExternalPlayback`](./props#allowsexternalplayback) is enabled (it is by default).
+What the system does not provide for free is a way to start it: only the system route
+picker can, there is no public API to select a route from code.
+
+`AirPlayButton` wraps that picker (`AVRoutePickerView`) so you can place it in your own
+controls. On platforms without AirPlay (Android, web, tvOS) it renders `fallback`
+(nothing by default), so you can drop it in a shared layout.
+
+## Usage
+
+```tsx
+import Video, {AirPlayButton} from 'react-native-video';
+
+const MyPlayer = () => {
+  const [external, setExternal] = useState(false);
+
+  return (
+    <View>
+      <Video
+        source={{uri: 'https://example.com/stream.m3u8'}}
+        allowsExternalPlayback
+        onExternalPlaybackChange={e => setExternal(e.isExternalPlaybackActive)}
+      />
+      <AirPlayButton
+        style={{width: 26, height: 26}}
+        iconColor="#fff"
+        activeIconColor="#0a84ff"
+      />
+      {external && <Text>Playing on AirPlay</Text>}
+    </View>
+  );
+};
+```
+
+## Props
+
+### `style`
+
+Style of the button. It is a native view, so give it an explicit size
+(`AVRoutePickerView` has no intrinsic one).
+
+### `iconColor`
+
+Color of the icon while no external route is selected. Defaults to white.
+
+### `activeIconColor`
+
+Color of the icon while playing on an external route. Defaults to the system tint.
+
+### `prioritizesVideoDevices`
+
+Lists video devices (TVs, AirPlay 2 displays) before audio-only receivers. Defaults to
+`true`. Requires iOS 13+.
+
+### `fallback`
+
+Rendered instead of the picker on platforms without AirPlay. Defaults to `null`.
+
+## Notes
+
+- The picker only shows devices the system has discovered; on a simulator there are
+  usually none, so it opens with an empty list.
+- Use [`onExternalPlaybackChange`](./events#onexternalplaybackchange) to know when
+  playback actually moved to the external route and adjust your UI (for example, to
+  show a "playing on Apple TV" placeholder over the paused local surface).

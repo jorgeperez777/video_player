@@ -1,5 +1,6 @@
+import AirPlayButton from './AirPlayButton';
 import Video from './Video';
 export {VideoDecoderProperties} from './VideoDecoderProperties';
 export * from './types';
-export {Video};
+export {AirPlayButton, Video};
 export default Video;
