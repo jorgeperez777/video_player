@@ -2197,10 +2197,14 @@ public class ReactExoplayerView extends FrameLayout implements
                 if (textRendererIndex != C.INDEX_UNSET) {
                     TrackGroupArray groups = info.getTrackGroups(textRendererIndex);
                     boolean trackFound = false;
+                    // getTextTrackInfo() numbers the tracks it reports across every group,
+                    // so "index" has to be matched against that flat position: in HLS each
+                    // subtitle rendition is its own group and trackIndex is always 0.
+                    int flatIndex = 0;
                     
                     for (int groupIndex = 0; groupIndex < groups.length; groupIndex++) {
                         TrackGroup group = groups.get(groupIndex);
-                        for (int trackIndex = 0; trackIndex < group.length; trackIndex++) {
+                        for (int trackIndex = 0; trackIndex < group.length; trackIndex++, flatIndex++) {
                             Format format = group.getFormat(trackIndex);
                             
                             boolean isMatch = false;
@@ -2210,7 +2214,7 @@ public class ReactExoplayerView extends FrameLayout implements
                                 isMatch = true;
                             } else if ("index".equals(type)) {
                                 int targetIndex = ReactBridgeUtils.safeParseInt(value, -1);
-                                if (targetIndex == trackIndex) {
+                                if (targetIndex == flatIndex) {
                                     isMatch = true;
                                 }
                             }
