@@ -318,6 +318,35 @@ Checks if **HEVC (H.265)** is supported at **1920×1080 resolution**.
 
 ---
 
+### `isPictureInPictureSupported`
+
+<PlatformsList types={['Android', 'iOS']} />
+
+```tsx
+isPictureInPictureSupported(): Promise<boolean>
+```
+
+Reports whether the device can do Picture in Picture, so you can hide the button when
+it cannot. Entering PiP where it is unsupported does not fail — nothing happens at all —
+so this is the only way to tell.
+
+- **iOS**: `AVPictureInPictureController.isPictureInPictureSupported()`. It is `false` on
+  the simulator, so PiP can only be exercised on a device.
+- **Android**: requires API 26+ and the `android.software.picture_in_picture` system
+  feature, which some emulators, TVs and vendor builds do not declare.
+
+```tsx
+import { isPictureInPictureSupported } from 'react-native-video';
+
+const [pipSupported, setPipSupported] = useState(false);
+
+useEffect(() => {
+  isPictureInPictureSupported().then(setPipSupported);
+}, []);
+```
+
+---
+
 ### Static Methods Example Usage
 
 ```tsx

@@ -27,6 +27,7 @@ export interface VideoManagerType {
   exitPictureInPictureCmd: (reactTag: number) => Promise<void>;
   save: (reactTag: Int32, option: UnsafeObject) => Promise<VideoSaveData>;
   getCurrentPosition: (reactTag: Int32) => Promise<Int32>;
+  isPictureInPictureSupported: () => Promise<boolean>;
 }
 
 export default NativeModules.VideoManager as VideoManagerType;

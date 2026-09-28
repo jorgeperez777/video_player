@@ -1,5 +1,7 @@
 package com.brentvatne.react
 
+import android.content.pm.PackageManager
+import android.os.Build
 import com.brentvatne.common.api.Source
 import com.brentvatne.exoplayer.ReactExoplayerView
 import com.facebook.react.bridge.Promise
@@ -91,6 +93,18 @@ class VideoManagerModule(reactContext: ReactApplicationContext?) : ReactContextB
         performOnPlayerView(reactTag) {
             it?.getCurrentPosition(promise)
         }
+    }
+
+    /**
+     * Picture in Picture necesita Android 8 y que el dispositivo declare la
+     * característica: los emuladores sin ella, la TV o algunos fabricantes no la
+     * tienen. Quien dibuje los controles puede preguntar antes de ofrecer el botón.
+     */
+    @ReactMethod
+    fun isPictureInPictureSupported(promise: Promise) {
+        val supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            reactApplicationContext.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        promise.resolve(supported)
     }
 
     companion object {

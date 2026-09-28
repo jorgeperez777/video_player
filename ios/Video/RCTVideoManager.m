@@ -84,5 +84,6 @@ RCT_EXTERN_METHOD(save : (nonnull NSNumber*)reactTag options : (NSDictionary*)op
                       resolve reject : (RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(getCurrentPosition : (nonnull NSNumber*)reactTag resolve : (RCTPromiseResolveBlock)
                       resolve reject : (RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(isPictureInPictureSupported : (RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject)
 
 @end

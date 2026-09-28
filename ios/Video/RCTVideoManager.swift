@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import React
 
 @objc(RCTVideoManager)
@@ -106,6 +107,17 @@ class RCTVideoManager: RCTViewManager {
         performOnVideoView(withReactTag: reactTag, callback: { videoView in
             videoView?.getCurrentPlaybackTime(resolve, reject)
         })
+    }
+
+    /// Picture in Picture no existe en todos los dispositivos (ni en el simulador),
+    /// así que quien dibuje los controles puede preguntar antes de ofrecer el botón.
+    @objc(isPictureInPictureSupported:reject:)
+    func isPictureInPictureSupported(_ resolve: @escaping RCTPromiseResolveBlock, reject _: @escaping RCTPromiseRejectBlock) {
+        #if os(iOS)
+            resolve(AVPictureInPictureController.isPictureInPictureSupported())
+        #else
+            resolve(false)
+        #endif
     }
 
     override class func requiresMainQueueSetup() -> Bool {
