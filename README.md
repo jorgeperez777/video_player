@@ -15,6 +15,7 @@ The most battle-tested open-source video player component for React Native with 
 - 🌐 Basic Web Support 
 - 📱 Picture in Picture
 - 📺 TV Support
+- 🎛️ Ready-made player controls, optional: `react-native-video/controls`
 
 
 
@@ -59,6 +60,22 @@ export default () => (
   />
 );
 ```
+
+### Want controls you can style?
+
+`controls` hands playback to the system UI. For a full custom layer — scrubber with
+previews, track menus, fullscreen, casting, gestures, "skip intro" — import the one that
+ships with the library:
+
+```tsx
+import VideoPlayer from 'react-native-video/controls';
+
+<VideoPlayer source={{uri: 'https://example.com/movie.m3u8'}} title="Big Buck Bunny" />;
+```
+
+It is a separate entry point, so apps that only use `<Video>` don't pay for it, and the
+libraries it leans on (svg, safe-area, orientation, cast, netinfo) are optional peer
+dependencies. See [Controls](https://docs.thewidlarzgroup.com/react-native-video/component/controls).
 
 ---
 

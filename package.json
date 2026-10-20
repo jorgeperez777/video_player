@@ -13,6 +13,9 @@
         "url": "git+https://github.com/jorgeperez777/video_player.git"
     },
     "devDependencies": {
+        "@babel/core": "^7.25.0",
+        "@babel/plugin-transform-modules-commonjs": "^7.25.0",
+        "@babel/preset-typescript": "^7.25.0",
         "@expo/config-plugins": "^8.0.5",
         "@jamesacarr/eslint-formatter-github-actions": "^0.2.0",
         "@react-native/eslint-config": "^0.72.2",
@@ -36,7 +39,29 @@
     },
     "peerDependencies": {
         "react": "*",
-        "react-native": "*"
+        "react-native": "*",
+        "@react-native-community/netinfo": "*",
+        "react-native-google-cast": "*",
+        "react-native-orientation-locker": "*",
+        "react-native-safe-area-context": "*",
+        "react-native-svg": "*"
+    },
+    "peerDependenciesMeta": {
+        "@react-native-community/netinfo": {
+            "optional": true
+        },
+        "react-native-google-cast": {
+            "optional": true
+        },
+        "react-native-orientation-locker": {
+            "optional": true
+        },
+        "react-native-safe-area-context": {
+            "optional": true
+        },
+        "react-native-svg": {
+            "optional": true
+        }
     },
     "scripts": {
         "lint": "yarn eslint .",
@@ -47,7 +72,7 @@
         "docs:llms": "node scripts/generate-llms.js",
         "docs:llms-full": "node scripts/generate-llms-full.js",
         "release": "release-it",
-        "test": "echo no test available",
+        "test": "jest",
         "check-ios": "scripts/swift-format.sh && scripts/swift-lint.sh && scripts/clang-format.sh",
         "check-android": "scripts/kotlin-lint.sh",
         "check-all": "yarn check-android; yarn check-ios; yarn lint",
@@ -59,6 +84,8 @@
         "windows",
         "src",
         "lib",
+        "controls.js",
+        "controls.d.ts",
         "react-native-video.podspec",
         "app.plugin.js",
         "!android/build",

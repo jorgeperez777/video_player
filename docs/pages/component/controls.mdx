@@ -1,0 +1,95 @@
+import PlatformsList from '../../components/PlatformsList/PlatformsList.tsx';
+
+# Controls
+
+<PlatformsList types={['Android', 'iOS']} />
+
+`<Video>` renders video and nothing else: no buttons, no scrubber, no menus. Most apps
+end up writing that layer themselves, and it is more work than it looks — gestures,
+auto-hide, track menus, fullscreen rotation, Picture in Picture, casting, resume.
+
+`react-native-video/controls` ships that layer, built on the same `<Video>`:
+
+- play/pause, ±10&nbsp;s (buttons and double tap), previous/next
+- scrubber with buffered range, chapter marks and storyboard preview
+- fullscreen with rotation, lock, Picture in Picture, Chromecast and AirPlay
+- quality, subtitles, audio track, playback speed and a data-saver cap
+- vertical swipes for volume and brightness, pinch to fill, hold to speed up
+- "Skip intro" and a "Next episode" card
+- live streams: LIVE badge, DVR window and a "Go live" button
+
+It is a separate import on purpose: apps that only want `<Video>` don't pull any of it
+into their bundle.
+
+## Usage
+
+```tsx
+import VideoPlayer from 'react-native-video/controls';
+
+<VideoPlayer
+  source={{uri: 'https://example.com/movie.m3u8'}}
+  title="Big Buck Bunny"
+  style={{width: '100%', height: '100%'}}
+/>;
+```
+
+That is enough for a working player. Everything else is opt-in.
+
+## Dependencies
+
+The controls use five libraries that `react-native-video` itself does not need. They are
+declared as **optional** peer dependencies: install the ones you want, and the matching
+feature turns itself off when a library is missing.
+
+| Package | What you lose without it |
+|---|---|
+| `react-native-svg` | Icons fall back to characters (▶, ⏸) instead of vectors |
+| `react-native-safe-area-context` | Controls ignore the notch (insets are 0) |
+| `react-native-orientation-locker` | Fullscreen does not rotate by itself |
+| `react-native-google-cast` | No Chromecast button |
+| `@react-native-community/netinfo` | Network is assumed fine: no offline banner, no data saver |
+
+Nothing else is required, and no native code is added beyond what each of those
+libraries installs.
+
+## Props
+
+The ones you will reach for first; the rest are typed in `src/controls/VideoPlayer.tsx`.
+
+| Prop | Type | What it does |
+|---|---|---|
+| `source` | `ReactVideoSource` | Same source `<Video>` takes |
+| `title` | `string` | Shown in the top bar and in the system controls |
+| `presentation` | `'inline' \| 'immersive'` | `immersive` starts fullscreen and landscape, like opening an episode |
+| `paused` / `onPausedChange` | `boolean` / `(paused) => void` | Controlled playback; leave them out and the component owns it |
+| `fullscreen` / `onFullscreenChange` | `boolean` / `(value) => void` | Same, for fullscreen |
+| `compact` | `boolean` | Mini-player layout: one row, no menus |
+| `startPosition` | `number` | Second to resume from |
+| `onPositionChange` | `(seconds, duration) => void` | Fires every few seconds so you can persist progress |
+| `prefs` / `onPrefsChange` | `Prefs` | Subtitle language, audio language, quality, speed and data saver, so choices survive restarts |
+| `chapters` | `Chapter[]` | Marks on the scrubber; a chapter flagged `skippable` gets a "Skip intro" button |
+| `storyboard` | `StoryboardSource` | Sprite sheet (or WebVTT) for scrubbing previews |
+| `features` | `PlayerFeatures` | Turns individual controls off, one flag per control |
+| `accent` / `accentGradient` | `string` | Color of the thumb and active icons, and the image used to fill progress bars |
+| `onEvent` | `(event: PlaybackEvent) => void` | Startup time, rebuffers, errors and bitrate, for your own QoE metrics |
+
+## Language
+
+The controls carry their own Spanish and English strings, so nothing has to be wired up
+to see a label:
+
+```tsx
+import {setControlsLanguage, setControlsStrings} from 'react-native-video/controls';
+
+setControlsLanguage('en');
+// Override single strings, or add the ones your language needs
+setControlsStrings({'menu.quality': 'Resolution'});
+```
+
+The language follows the device by default, and changing it re-renders anything on
+screen.
+
+## Platforms
+
+Android and iOS. The controls render on tvOS, web and Windows, but the gestures and the
+rotation lock assume a phone, and casting is phone-only — treat them as untested there.
