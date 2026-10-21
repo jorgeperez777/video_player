@@ -14,6 +14,16 @@ const CAP_HD = 2_500_000; // ~720p
 const CAP_SD = 800_000; // ~360p
 const CAP_LOW = 400_000; // ~240p
 
+/**
+ * Tope mientras el vídeo va encogido en el miniplayer.
+ *
+ * Ahí la imagen ocupa una miniatura (unos 128x72 dp), así que decodificar la
+ * calidad grande es gastar CPU en píxeles que nadie va a ver. Y se gasta justo
+ * cuando más falta hace: con el miniplayer puesto se está navegando por la
+ * app, y el decodificador le quita tiempo al hilo que dibuja las pantallas.
+ */
+export const MINI_CAP = CAP_LOW;
+
 export type NetworkCap = {
   /** Valor para la prop `maxBitRate` de <Video>; 0 = sin tope. */
   bitrate: number;

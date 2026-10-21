@@ -49,7 +49,7 @@ import {formatTime} from './format';
 import {SAVE_EVERY_MS, type PlaybackEvent, type Prefs} from './types';
 import SeekBar from './SeekBar';
 import useCast from './useCast';
-import useNetworkCap, {mbps, type DataSaver} from './useNetworkCap';
+import useNetworkCap, {mbps, MINI_CAP, type DataSaver} from './useNetworkCap';
 import useStoryboard, {type StoryboardSource} from './useStoryboard';
 import {
   AirPlayGlyph,
@@ -493,6 +493,23 @@ export default function VideoPlayer({
   // Tope de bitrate según la red (ver useNetworkCap) y última estimación de ancho
   // de banda que publica ExoPlayer (`reportBandwidth`, solo Android).
   const networkCap = useNetworkCap(dataSaver);
+  /**
+   * El tope que se le pasa al reproductor: el de la red y, encogido en el
+   * miniplayer, el de la miniatura. Manda el más bajo de los dos; con la
+   * calidad fijada a mano no hay tope, que para eso se ha fijado.
+   */
+  const miniBitrate = useMemo(() => {
+    if (quality !== 'auto') {
+      return 0;
+    }
+    if (!compact) {
+      return networkCap.bitrate;
+    }
+    // 0 en `networkCap` es «sin tope», así que no sirve como mínimo.
+    return networkCap.bitrate === 0
+      ? MINI_CAP
+      : Math.min(networkCap.bitrate, MINI_CAP);
+  }, [quality, compact, networkCap.bitrate]);
   // Vista previa de la barra: recorte del storyboard para el instante arrastrado.
   const tileAt = useStoryboard(seekPreview ? storyboard : undefined);
   const [layoutWidth, setLayoutWidth] = useState(0);
@@ -664,7 +681,19 @@ export default function VideoPlayer({
     if (pipActive) {
       setControlsVisible(false);
       setMenu(null);
+      return undefined;
     }
+    // Al salir de PiP el nativo se queda parado y no avisa a JS: como `paused`
+    // ya valía `false`, React no le manda ningún cambio y el vídeo se queda
+    // quieto con los controles diciendo «pausar». El mismo truco que para el
+    // segundo plano (ver `appStatePause`): mandarlo a pausa y devolverlo, que
+    // así sí es un cambio de prop y el nativo vuelve a arrancar.
+    if (pausedRef.current) {
+      return;
+    }
+    setPaused(true);
+    const timer = setTimeout(() => setPaused(false), 0);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipActive]);
 
@@ -1605,7 +1634,12 @@ export default function VideoPlayer({
         }
         // Tope de datos: solo manda con calidad automática; si el usuario ha fijado
         // una resolución a mano, su elección gana. 0 = sin tope.
-        maxBitRate={quality === 'auto' ? networkCap.bitrate : 0}
+        //
+        // Encogido en el miniplayer manda además `MINI_CAP`, y manda el más
+        // bajo de los dos: a ese tamaño no se distingue la calidad, y lo que
+        // se ahorra en decodificar se nota en lo que cuesta navegar por la app
+        // mientras tanto. Al expandir se recupera sola.
+        maxBitRate={miniBitrate}
         reportBandwidth
         onBandwidthUpdate={(e) => {
           setBandwidth(e.bitrate ?? 0);
@@ -1942,10 +1976,11 @@ export default function VideoPlayer({
                     <ArrowBackIcon />
                   </Pressable>
                 )}
-                {/* ⌄ minimizar: en inmersivo también, que es la única forma de
-                mandar el vídeo al miniplayer; en inline, solo fuera de pantalla
-                completa (ahí se sale con ⤢). */}
-                {onMinimize && (immersive || !fullscreen) && (
+                {/* ⌄ minimizar: siempre que la app ofrezca miniplayer, también
+                a pantalla completa. Convive con el ⤢ porque no hacen lo mismo:
+                ⤢ devuelve el vídeo a su hueco y ⌄ lo manda a la miniatura para
+                seguir navegando, como en YouTube. */}
+                {onMinimize && (
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={t('a11y.minimize')}
