@@ -56,6 +56,7 @@ import {
   ArrowBackIcon,
   CastIcon,
   ChevronIcon,
+  CloseIcon,
   EpisodesIcon,
   FastForwardIcon,
   FullscreenIcon,
@@ -68,8 +69,9 @@ import {
   ReplayIcon,
   SettingsIcon,
   SkipIcon,
-  SubtitlesIcon,
+  SpeedIcon,
   TrackIcon,
+  TracksIcon,
 } from './icons';
 
 /**
@@ -261,15 +263,17 @@ type Props = {
   /** Capítulos del vídeo: marcas en la barra y botón de saltar intro. */
   chapters?: Chapter[];
   /**
-   * Qué viene después, para la tarjeta de continuidad de los últimos segundos.
-   * `label` cambia el encabezado («Siguiente episodio» en una serie).
+   * Qué viene después, para la tarjeta de continuidad de los últimos segundos:
+   * miniatura con ▶, «Siguiente en N», el título y una línea de detalle.
    */
   nextUp?: {
+    /** Línea principal: la serie, o la película. */
     title: string;
-    label?: string;
     /** Fotograma o carátula (16:9) para la miniatura de la tarjeta. */
     image?: string;
-    /** Debajo del título: «T1:E3», la duración… */
+    /** En negrita delante del detalle: «T1 E3». */
+    badge?: string;
+    /** Detalle: el nombre del episodio, la duración… */
     subtitle?: string;
   };
   /**
@@ -298,6 +302,11 @@ type Props = {
   startPosition?: number;
   /** Cada pocos segundos, para que quien nos use guarde la posición. */
   onPositionChange?: (seconds: number, duration: number) => void;
+  /**
+   * En cada aviso de progreso (cada segundo, en VOD), para quien quiera pintar
+   * una barra fuera del reproductor (el miniplayer). En directo no se llama.
+   */
+  onProgressChange?: (seconds: number, duration: number) => void;
   /**
    * Preferencias recordadas entre sesiones (idioma de subtítulos y audio, calidad
    * y velocidad). El reproductor las aplica cuando el stream anuncia sus pistas y
@@ -379,6 +388,7 @@ export default function VideoPlayer({
   playWhenInactive = false,
   startPosition = 0,
   onPositionChange,
+  onProgressChange,
   prefs,
   onPrefsChange,
   features = {},
@@ -493,6 +503,7 @@ export default function VideoPlayer({
   // Menú ⚙: principal → Calidad / Velocidad.
   const [menu, setMenu] = useState<
     | 'main'
+    | 'tracks'
     | 'quality'
     | 'speed'
     | 'subtitles'
@@ -501,6 +512,11 @@ export default function VideoPlayer({
     | 'episodes'
     | null
   >(null);
+  /**
+   * A dónde vuelve ← en una hoja: a ⚙ si se abrió desde ahí, o se cierra si
+   * vino de la fila de acciones de abajo (velocidad, audio y subtítulos…).
+   */
+  const menuRoot = useRef<'main' | null>('main');
   // Calidad: 'auto' (ABR) o el alto en px de la variante elegida. Solo Android.
   const [videoTracks, setVideoTracks] = useState<VideoTrack[]>([]);
   const [quality, setQuality] = useState<'auto' | number>('auto');
@@ -571,6 +587,8 @@ export default function VideoPlayer({
   );
 
   const touch = useCallback(() => setInteraction((n) => n + 1), []);
+  /** La tarjeta de «a continuación» está a la vista (ver `showNextUp`). */
+  const nextUpOpen = useRef(false);
 
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -594,7 +612,13 @@ export default function VideoPlayer({
     ) {
       return;
     }
-    const timer = setTimeout(() => setControlsVisible(false), AUTO_HIDE_MS);
+    const timer = setTimeout(() => {
+      // Con la tarjeta de «a continuación» los controles se quedan, como en
+      // Pluto: la barra de tiempo es lo que la sitúa (ver `showNextUp`).
+      if (!nextUpOpen.current) {
+        setControlsVisible(false);
+      }
+    }, AUTO_HIDE_MS);
     return () => clearTimeout(timer);
   }, [
     controlsVisible,
@@ -1327,6 +1351,9 @@ export default function VideoPlayer({
     }
     setLiveOffset(data.liveOffset ?? -1);
     emitEvent({type: 'progress', seconds: data.currentTime});
+    if (!data.isLive && duration > 0) {
+      onProgressChange?.(data.currentTime, duration);
+    }
     // Posición para «seguir viendo»: a disco cada pocos segundos, no en cada aviso.
     const now = Date.now();
     if (
@@ -1423,16 +1450,6 @@ export default function VideoPlayer({
     const track = textTracks.find((item) => item.index === subtitle);
     return track ? trackLabel(track) : t('subtitles.off');
   };
-  // El botón CC alterna entre apagado y la última pista elegida (o la primera).
-  const toggleSubtitles = () => {
-    setSubtitle((current) =>
-      current === 'off'
-        ? lastSubtitle.current ?? textTracks[0]?.index ?? 'off'
-        : 'off',
-    );
-    touch();
-  };
-
   // En directo la barra representa la ventana DVR (seekableDuration), no una duración fija.
   // Transmitiendo, la duración la da el receptor (en directo no hay DVR remoto).
   const timelineDuration = casting
@@ -1474,6 +1491,13 @@ export default function VideoPlayer({
     duration > 0 &&
     remaining > 0 &&
     remaining <= NEXT_UP_S;
+  nextUpOpen.current = showNextUp;
+  // Al salir la tarjeta se enseñan los controles y se quedan (ver el auto-ocultado).
+  useEffect(() => {
+    if (showNextUp) {
+      setControlsVisible(true);
+    }
+  }, [showNextUp]);
   // Botones de pista anterior/siguiente cuando hay lista (también en directo: una
   // lista puede tener varios canales en vivo).
   const showTrackButtons = trackButtons && (!!onNext || !!onPrevious);
@@ -1825,44 +1849,34 @@ export default function VideoPlayer({
                 seekTo(currentChapter.end);
                 touch();
               }}>
-              <TrackIcon direction="next" size={18} />
               <Text style={styles.skipIntroText}>{t('chapter.skipIntro')}</Text>
-              {/* Lo que queda de intro, llenándose por debajo. */}
-              <View
-                style={[
-                  styles.skipIntroFill,
-                  {
-                    backgroundColor: accent,
-                    width: `${Math.min(
-                      100,
-                      Math.max(
-                        0,
-                        ((displayTime - currentChapter.start) /
-                          (currentChapter.end - currentChapter.start)) *
-                          100,
-                      ),
-                    )}%`,
-                  },
-                ]}
-              />
             </Pressable>
           )}
 
-          {/* A continuación: los últimos segundos, con cuenta atrás y salida */}
+          {/* A continuación: los últimos segundos. Centrada y sin fondo, como
+              Pluto: la miniatura con ▶ salta ya, la ✕ lo deja estar y el
+              encabezado lleva la cuenta atrás. */}
           {showNextUp && nextUp && (
             <View
+              pointerEvents="box-none"
               style={[
-                styles.nextUp,
-                {
-                  // Como «saltar intro»: por encima de la barra si se ve.
-                  bottom:
-                    (controlsVisible ? 96 : 32) +
-                    (fullscreen ? insets.bottom : 0),
-                  right: 16 + (fullscreen ? insets.right : 0),
-                },
+                styles.nextUpWrap,
+                // En la mitad de abajo, justo encima de la barra de tiempo,
+                // como Pluto; a la misma altura se vean o no los controles.
+                {paddingBottom: 88 + (fullscreen ? insets.bottom : 0)},
               ]}>
-              <View style={styles.nextUpBody}>
-                <View style={styles.nextUpThumb}>
+              <View style={styles.nextUp}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('next.playNow')}
+                  style={({pressed}) => [
+                    styles.nextUpThumb,
+                    pressed && styles.dimmed,
+                  ]}
+                  onPress={() => {
+                    onNext?.();
+                    touch();
+                  }}>
                   {nextUp.image ? (
                     <Image
                       source={{uri: nextUp.image}}
@@ -1871,67 +1885,41 @@ export default function VideoPlayer({
                     />
                   ) : null}
                   <View style={styles.nextUpThumbPlay}>
-                    <PlayIcon size={16} />
+                    <PlayIcon size={28} />
                   </View>
-                </View>
+                </Pressable>
                 <View style={styles.nextUpText}>
                   <Text style={styles.nextUpLabel}>
-                    {nextUp.label ?? t('next.upNext')}
+                    {t('next.countdown', {seconds: Math.ceil(remaining)})}
                   </Text>
                   <Text style={styles.nextUpTitle} numberOfLines={1}>
                     {nextUp.title}
                   </Text>
-                  {nextUp.subtitle ? (
+                  {nextUp.badge || nextUp.subtitle ? (
                     <Text style={styles.nextUpSubtitle} numberOfLines={1}>
+                      {nextUp.badge ? (
+                        <Text style={styles.nextUpBadge}>
+                          {nextUp.badge}
+                          {nextUp.subtitle ? '  ' : ''}
+                        </Text>
+                      ) : null}
                       {nextUp.subtitle}
                     </Text>
                   ) : null}
                 </View>
-              </View>
-              <View style={styles.nextUpButtons}>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel={t('next.cancel')}
+                  hitSlop={12}
                   style={({pressed}) => [
-                    styles.nextUpGhost,
+                    styles.nextUpClose,
                     pressed && styles.dimmed,
                   ]}
                   onPress={() => {
                     setNextCancelled(true);
                     touch();
                   }}>
-                  <Text style={styles.nextUpGhostText}>{t('next.cancel')}</Text>
-                </Pressable>
-                {/* Reproducir ya: del color de la barra de progreso, con los
-                    segundos que faltan para que salte solo. */}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${t('next.playNow')}. ${t(
-                    'next.inSeconds',
-                    {seconds: Math.ceil(remaining)},
-                  )}`}
-                  style={({pressed}) => [
-                    styles.nextUpPlay,
-                    pressed && styles.dimmed,
-                  ]}
-                  onPress={() => {
-                    onNext?.();
-                    touch();
-                  }}>
-                  <View
-                    style={[styles.nextUpPlayFill, {backgroundColor: accent}]}>
-                    {accentGradient ? (
-                      <Image
-                        source={{uri: accentGradient}}
-                        style={StyleSheet.absoluteFill}
-                        resizeMode="stretch"
-                      />
-                    ) : null}
-                  </View>
-                  <PlayIcon size={13} />
-                  <Text style={styles.nextUpPlayText}>{t('next.playNow')}</Text>
-                  <Text style={styles.nextUpPlayCount}>
-                    {Math.ceil(remaining)}
-                  </Text>
+                  <CloseIcon size={22} />
                 </Pressable>
               </View>
             </View>
@@ -2093,28 +2081,6 @@ export default function VideoPlayer({
                       )}
                     </>
                   )}
-                  {/* CC: atajo para encender/apagar; la pista se elige en ⚙. */}
-                  {subtitlesButton &&
-                    !playerError &&
-                    !casting &&
-                    textTracks.length > 0 && (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          subtitle === 'off'
-                            ? t('a11y.subtitlesOff')
-                            : t('a11y.subtitlesOn')
-                        }
-                        accessibilityState={{selected: subtitle !== 'off'}}
-                        hitSlop={12}
-                        style={styles.iconButton}
-                        onPress={toggleSubtitles}>
-                        <SubtitlesIcon
-                          active={subtitle !== 'off'}
-                          activeColor={accent}
-                        />
-                      </Pressable>
-                    )}
                   {/* Miniplayer de películas y series: su propio icono junto al
                       de PiP (el ⌄ junto al título queda para los directos). */}
                   {onMinimize && !isLive && (
@@ -2147,19 +2113,6 @@ export default function VideoPlayer({
                         <PipIcon />
                       </Pressable>
                     )}
-                  {settingsButton && loaded && !playerError && (
-                    <Pressable
-                      hitSlop={12}
-                      style={styles.iconButton}
-                      onPress={() => {
-                        setMenu('main');
-                        touch();
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('a11y.settings')}>
-                      <SettingsIcon />
-                    </Pressable>
-                  )}
                 </View>
               </View>
 
@@ -2171,7 +2124,7 @@ export default function VideoPlayer({
                 pointerEvents={previewTile ? 'none' : 'box-none'}>
                 {loaded && !playerError && !showNextUp && (
                   <>
-                    {showTrackButtons && (
+                    {showTrackButtons && isLive && (
                       <Pressable
                         hitSlop={12}
                         style={[
@@ -2215,11 +2168,11 @@ export default function VideoPlayer({
                           : t('a11y.pause')
                       }>
                       {ended && !casting ? (
-                        <ReplayIcon size={50} />
+                        <ReplayIcon size={40} />
                       ) : uiPaused ? (
-                        <PlayIcon size={46} />
+                        <PlayIcon size={36} />
                       ) : (
-                        <PauseIcon size={46} />
+                        <PauseIcon size={36} />
                       )}
                     </Pressable>
                     {skipButtons && (
@@ -2235,7 +2188,7 @@ export default function VideoPlayer({
                         <SkipIcon direction="forward" seconds={SKIP_SECONDS} />
                       </Pressable>
                     )}
-                    {showTrackButtons && (
+                    {showTrackButtons && isLive && (
                       <Pressable
                         hitSlop={12}
                         style={[styles.iconButton, !hasNext && styles.dimmed]}
@@ -2271,106 +2224,6 @@ export default function VideoPlayer({
               <View
                 style={[styles.bottomBar, !loaded && styles.hidden]}
                 pointerEvents={loaded ? 'box-none' : 'none'}>
-                <View style={styles.bottomRow} pointerEvents="box-none">
-                  {/* Con error no hay tiempo ni badge, pero el hueco se mantiene para
-                  que ⤢ siga a la derecha. */}
-                  {playerError ? (
-                    <View />
-                  ) : isLive ? (
-                    <View style={styles.liveRow} pointerEvents="box-none">
-                      {/* Rojo en directo; gris cuando vas atrasado (tap = volver al directo) */}
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          atLiveEdge ? t('a11y.atLive') : t('a11y.goLive')
-                        }
-                        accessibilityState={{disabled: atLiveEdge}}
-                        hitSlop={8}
-                        disabled={atLiveEdge}
-                        onPress={goToLive}
-                        style={[
-                          styles.liveBadge,
-                          atLiveEdge && {backgroundColor: accent},
-                        ]}>
-                        <View
-                          style={[
-                            styles.liveDot,
-                            atLiveEdge && styles.liveDotActive,
-                          ]}
-                        />
-                        <Text style={styles.liveText}>{t('live.badge')}</Text>
-                      </Pressable>
-                      {!atLiveEdge && displayLiveOffset >= 0 && (
-                        <Text style={styles.time}>
-                          -{formatTime(displayLiveOffset)}
-                        </Text>
-                      )}
-                    </View>
-                  ) : (
-                    <Text
-                      style={styles.time}
-                      accessibilityLabel={t('a11y.position', {
-                        position: formatTime(displayTime),
-                        duration: formatTime(duration),
-                      })}>
-                      {formatTime(displayTime)}
-                      <Text style={styles.timeDim}>
-                        {' '}
-                        / {formatTime(duration)}
-                      </Text>
-                      {currentChapter ? (
-                        <Text style={styles.timeDim} numberOfLines={1}>
-                          {'  ·  '}
-                          {currentChapter.title}
-                        </Text>
-                      ) : null}
-                    </Text>
-                  )}
-                  <View style={styles.bottomRight} pointerEvents="box-none">
-                    {/* ☰ Episodios: saltar a otro sin salir del reproductor */}
-                    {!!episodes?.length && !playerError && (
-                      <Pressable
-                        hitSlop={12}
-                        style={styles.iconButton}
-                        onPress={() => {
-                          setMenu('episodes');
-                          touch();
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('a11y.episodes')}>
-                        <EpisodesIcon />
-                      </Pressable>
-                    )}
-                    {/* 🔒 Bloquear la pantalla (los toques dejan de contar hasta soltarlo) */}
-                    {lockButton && !playerError && !casting && (
-                      <Pressable
-                        hitSlop={12}
-                        style={styles.iconButton}
-                        onPress={lock}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('a11y.lock')}>
-                        <LockIcon />
-                      </Pressable>
-                    )}
-                    {fullscreenButton && !casting && (
-                      <Pressable
-                        hitSlop={12}
-                        style={styles.iconButton}
-                        onPress={() => {
-                          setFullscreen((f) => !f);
-                          touch();
-                        }}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          fullscreen
-                            ? t('a11y.fullscreenExit')
-                            : t('a11y.fullscreenEnter')
-                        }>
-                        <FullscreenIcon exit={fullscreen} />
-                      </Pressable>
-                    )}
-                  </View>
-                </View>
                 {previewTile && (
                   <View
                     pointerEvents="none"
@@ -2413,36 +2266,167 @@ export default function VideoPlayer({
                   </View>
                 )}
 
-                {seekBar && hasDvr && !playerError ? (
-                  <SeekBar
-                    accent={accent}
-                    gradient={accentGradient}
-                    chapters={chapters}
-                    currentTime={displayTime}
-                    duration={timelineDuration}
-                    buffered={isLive ? timelineDuration : buffered}
-                    scrubbing={scrubbing}
-                    onScrubStart={(time) => {
-                      setScrubbing(true);
-                      setScrubTime(time);
-                    }}
-                    onScrub={setScrubTime}
-                    onScrubEnd={(time) => {
-                      setScrubbing(false);
-                      // Soltar cerca de la posición live = volver al directo.
-                      if (
-                        isLive &&
-                        livePosition - time <= LIVE_EDGE_TOLERANCE_S
-                      ) {
-                        goToLive();
-                      } else {
-                        seekTo(time);
-                        touch();
+                {/* Como en Netflix: la barra con lo que queda a su derecha; en
+                    directo, la pastilla LIVE delante. */}
+                <View style={styles.seekRow} pointerEvents="box-none">
+                  {isLive && !playerError && (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        atLiveEdge ? t('a11y.atLive') : t('a11y.goLive')
                       }
-                    }}
-                  />
-                ) : (
-                  <View style={styles.seekBarSpacer} />
+                      accessibilityState={{disabled: atLiveEdge}}
+                      hitSlop={8}
+                      disabled={atLiveEdge}
+                      onPress={goToLive}
+                      style={[
+                        styles.liveBadge,
+                        atLiveEdge && {backgroundColor: accent},
+                      ]}>
+                      <View
+                        style={[
+                          styles.liveDot,
+                          atLiveEdge && styles.liveDotActive,
+                        ]}
+                      />
+                      <Text style={styles.liveText}>{t('live.badge')}</Text>
+                    </Pressable>
+                  )}
+                  <View style={styles.seekFlex} pointerEvents="box-none">
+                    {seekBar && hasDvr && !playerError ? (
+                      <SeekBar
+                        accent={accent}
+                        gradient={accentGradient}
+                        chapters={chapters}
+                        currentTime={displayTime}
+                        duration={timelineDuration}
+                        buffered={isLive ? timelineDuration : buffered}
+                        scrubbing={scrubbing}
+                        onScrubStart={(time) => {
+                          setScrubbing(true);
+                          setScrubTime(time);
+                        }}
+                        onScrub={setScrubTime}
+                        onScrubEnd={(time) => {
+                          setScrubbing(false);
+                          // Soltar cerca de la posición live = volver al directo.
+                          if (
+                            isLive &&
+                            livePosition - time <= LIVE_EDGE_TOLERANCE_S
+                          ) {
+                            goToLive();
+                          } else {
+                            seekTo(time);
+                            touch();
+                          }
+                        }}
+                      />
+                    ) : (
+                      <View style={styles.seekBarSpacer} />
+                    )}
+                  </View>
+                  {!playerError && isLive
+                    ? !atLiveEdge &&
+                      displayLiveOffset >= 0 && (
+                        <Text style={styles.time}>
+                          -{formatTime(displayLiveOffset)}
+                        </Text>
+                      )
+                    : !playerError && (
+                        <Text
+                          style={styles.time}
+                          accessibilityLabel={t('a11y.position', {
+                            position: formatTime(displayTime),
+                            duration: formatTime(duration),
+                          })}>
+                          -{formatTime(Math.max(0, duration - displayTime))}
+                        </Text>
+                      )}
+                  {fullscreenButton && !casting && (
+                    <Pressable
+                      hitSlop={12}
+                      style={styles.iconButton}
+                      onPress={() => {
+                        setFullscreen((f) => !f);
+                        touch();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        fullscreen
+                          ? t('a11y.fullscreenExit')
+                          : t('a11y.fullscreenEnter')
+                      }>
+                      <FullscreenIcon exit={fullscreen} size={20} />
+                    </Pressable>
+                  )}
+                </View>
+
+                {/* La fila de acciones de Netflix: icono y texto, repartidos. */}
+                {!playerError && (
+                  <View style={styles.actionsRow} pointerEvents="box-none">
+                    {!isLive && !casting && (
+                      <Action
+                        icon={<SpeedIcon />}
+                        label={t('action.speed', {rate: speedLabel(rate)})}
+                        onPress={() => {
+                          menuRoot.current = null;
+                          setMenu('speed');
+                          touch();
+                        }}
+                      />
+                    )}
+                    {lockButton && !casting && (
+                      <Action
+                        icon={<LockIcon size={20} />}
+                        label={t('action.lock')}
+                        onPress={lock}
+                      />
+                    )}
+                    {!!episodes?.length && (
+                      <Action
+                        icon={<EpisodesIcon size={20} />}
+                        label={t('action.episodes')}
+                        onPress={() => {
+                          setMenu('episodes');
+                          touch();
+                        }}
+                      />
+                    )}
+                    {subtitlesButton &&
+                      !casting &&
+                      (textTracks.length > 0 || audioTracks.length > 1) && (
+                        <Action
+                          icon={<TracksIcon />}
+                          label={t('action.tracks')}
+                          onPress={() => {
+                            menuRoot.current = null;
+                            setMenu('tracks');
+                            touch();
+                          }}
+                        />
+                      )}
+                    {settingsButton && loaded && (
+                      <Action
+                        icon={<SettingsIcon size={20} />}
+                        label={t('action.settings')}
+                        onPress={() => {
+                          menuRoot.current = 'main';
+                          setMenu('main');
+                          touch();
+                        }}
+                      />
+                    )}
+                    {!isLive && !!onNext && hasNext && (
+                      <Action
+                        icon={<TrackIcon direction="next" size={18} />}
+                        label={t('action.next')}
+                        onPress={() => {
+                          onNext();
+                          touch();
+                        }}
+                      />
+                    )}
+                  </View>
                 )}
 
                 {/* Como en Netflix: el dispositivo abajo; al tocarlo se abre el
@@ -2610,7 +2594,7 @@ export default function VideoPlayer({
                 <>
                   <MenuHeader
                     title={t('menu.quality')}
-                    onBack={() => setMenu('main')}
+                    onBack={() => setMenu(menuRoot.current)}
                   />
                   <Text style={styles.menuNote}>
                     {networkCap.network}: {networkCap.limit}
@@ -2641,7 +2625,7 @@ export default function VideoPlayer({
                 <>
                   <MenuHeader
                     title={t('menu.saver')}
-                    onBack={() => setMenu('main')}
+                    onBack={() => setMenu(menuRoot.current)}
                   />
                   <Text style={styles.menuNote}>{t('menu.saverHint')}</Text>
                   {(['auto', 'on', 'off'] as DataSaver[]).map((mode) => (
@@ -2664,7 +2648,7 @@ export default function VideoPlayer({
                 <>
                   <MenuHeader
                     title={t('menu.subtitles')}
-                    onBack={() => setMenu('main')}
+                    onBack={() => setMenu(menuRoot.current)}
                   />
                   <MenuOption
                     accent={accent}
@@ -2700,7 +2684,7 @@ export default function VideoPlayer({
                 <>
                   <MenuHeader
                     title={t('menu.audio')}
-                    onBack={() => setMenu('main')}
+                    onBack={() => setMenu(menuRoot.current)}
                   />
                   <MenuOption
                     accent={accent}
@@ -2730,11 +2714,83 @@ export default function VideoPlayer({
                 </>
               )}
 
+              {menu === 'tracks' && (
+                <>
+                  <MenuHeader
+                    title={t('menu.tracks')}
+                    onBack={() => setMenu(null)}
+                  />
+                  {/* Dos columnas, como la hoja de Netflix. */}
+                  <View style={styles.tracksColumns}>
+                    <ScrollView style={styles.tracksColumn}>
+                      <Text style={styles.tracksTitle}>{t('menu.audio')}</Text>
+                      <MenuOption
+                        accent={accent}
+                        label={t('audio.default')}
+                        selected={audioTrack === 'auto'}
+                        onPress={() => {
+                          setAudioTrack('auto');
+                          updatePrefs({audioLanguage: undefined});
+                          setMenu(null);
+                          touch();
+                        }}
+                      />
+                      {audioTracks.map((track) => (
+                        <MenuOption
+                          accent={accent}
+                          key={track.index}
+                          label={trackLabel(track)}
+                          selected={track.index === audioTrack}
+                          onPress={() => {
+                            setAudioTrack(track.index);
+                            updatePrefs({audioLanguage: track.language});
+                            setMenu(null);
+                            touch();
+                          }}
+                        />
+                      ))}
+                    </ScrollView>
+                    <ScrollView style={styles.tracksColumn}>
+                      <Text style={styles.tracksTitle}>
+                        {t('menu.subtitles')}
+                      </Text>
+                      <MenuOption
+                        accent={accent}
+                        label={t('subtitles.off')}
+                        selected={subtitle === 'off'}
+                        onPress={() => {
+                          setSubtitle('off');
+                          updatePrefs({subtitleLanguage: 'off'});
+                          setMenu(null);
+                          touch();
+                        }}
+                      />
+                      {textTracks.map((track) => (
+                        <MenuOption
+                          accent={accent}
+                          key={track.index}
+                          label={trackLabel(track)}
+                          selected={track.index === subtitle}
+                          onPress={() => {
+                            setSubtitle(track.index);
+                            updatePrefs({
+                              subtitleLanguage: track.language ?? 'off',
+                            });
+                            setMenu(null);
+                            touch();
+                          }}
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                </>
+              )}
+
               {menu === 'speed' && (
                 <>
                   <MenuHeader
                     title={t('menu.speed')}
-                    onBack={() => setMenu('main')}
+                    onBack={() => setMenu(menuRoot.current)}
                   />
                   {SPEEDS.map((r) => (
                     <MenuOption
@@ -2757,6 +2813,31 @@ export default function VideoPlayer({
         </>
       )}
     </View>
+  );
+}
+
+/** Una acción de la fila de abajo: icono y texto en línea, como en Netflix. */
+function Action({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+      style={({pressed}) => [styles.action, pressed && styles.dimmed]}
+      onPress={onPress}>
+      {icon}
+      <Text style={styles.actionText} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -2926,11 +3007,11 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     color: '#fff',
-    // A juego con los iconos de la barra, que se dibujan al 130% (ver `SCALE`
-    // en `icons`): con 14 el título quedaba pequeño a su lado.
-    fontSize: 19,
+    fontSize: 16,
     fontWeight: '600',
     marginHorizontal: 8,
+    // En medio, como en Netflix.
+    textAlign: 'center',
   },
   castDeviceRow: {
     flexDirection: 'row',
@@ -2940,7 +3021,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 4,
   },
-  castDeviceRowText: {color: 'rgba(255,255,255,0.8)', fontSize: 14},
+  castDeviceRowText: {color: 'rgba(255,255,255,0.8)', fontSize: 12},
   centerRow: {
     flex: 1,
     flexDirection: 'row',
@@ -2956,8 +3037,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   playButton: {
-    width: 80,
-    height: 80,
+    width: 64,
+    height: 64,
     borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2967,11 +3048,6 @@ const styles = StyleSheet.create({
   },
   dimmed: {
     opacity: 0.4,
-  },
-  liveRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
   },
   liveBadge: {
     flexDirection: 'row',
@@ -2993,7 +3069,7 @@ const styles = StyleSheet.create({
   },
   liveText: {
     color: '#fff',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -3009,7 +3085,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 14,
   },
-  offlineText: {color: '#fff', fontSize: 14, fontWeight: '600'},
+  offlineText: {color: '#fff', fontSize: 12, fontWeight: '600'},
   boostBadge: {
     position: 'absolute',
     top: 8,
@@ -3022,7 +3098,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 14,
   },
-  boostText: {color: '#fff', fontSize: 15, fontWeight: '700'},
+  boostText: {color: '#fff', fontSize: 13, fontWeight: '700'},
   dimVeil: {...FILL, backgroundColor: '#000'},
   hud: {
     position: 'absolute',
@@ -3036,7 +3112,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
   },
-  hudLabel: {color: '#fff', fontSize: 15, fontWeight: '700'},
+  hudLabel: {color: '#fff', fontSize: 13, fontWeight: '700'},
   hudTrack: {
     width: 120,
     height: 4,
@@ -3049,12 +3125,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.85)',
     backgroundColor: 'rgba(20,20,22,0.75)',
-    paddingLeft: 16,
-    paddingRight: 20,
+    paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
     overflow: 'hidden',
@@ -3063,26 +3137,27 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   skipIntroPressed: {backgroundColor: 'rgba(255,255,255,0.2)'},
-  skipIntroText: {color: '#fff', fontSize: 16, fontWeight: '700'},
-  skipIntroFill: {position: 'absolute', left: 0, bottom: 0, height: 3},
-  nextUp: {
-    position: 'absolute',
-    width: 300,
-    maxWidth: '60%',
-    backgroundColor: 'rgba(20,20,22,0.94)',
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.15)',
-    padding: 10,
-    gap: 10,
+  skipIntroText: {color: '#fff', fontSize: 14, fontWeight: '700'},
+  nextUpWrap: {
+    ...FILL,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    // Velo sobre el vídeo: los créditos suelen ser claros y el texto se perdía.
+    backgroundColor: 'rgba(0,0,0,0.6)',
     // Por encima del velo de los controles (ver `skipIntro`).
     zIndex: 10,
   },
-  nextUpBody: {flexDirection: 'row', gap: 10, alignItems: 'center'},
+  nextUp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    maxWidth: '82%',
+    paddingHorizontal: 16,
+  },
   nextUpThumb: {
-    width: 88,
+    width: 112,
     aspectRatio: 16 / 9,
-    borderRadius: 5,
+    borderRadius: 4,
     overflow: 'hidden',
     backgroundColor: '#2a2a2e',
   },
@@ -3090,46 +3165,13 @@ const styles = StyleSheet.create({
     ...FILL,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
   },
-  nextUpText: {flex: 1, gap: 1},
-  nextUpLabel: {
-    color: '#aaa',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  nextUpTitle: {color: '#fff', fontSize: 15, fontWeight: '800'},
-  nextUpSubtitle: {color: '#aaa', fontSize: 12},
-  nextUpButtons: {flexDirection: 'row', gap: 8},
-  nextUpGhost: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 7,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-  },
-  nextUpGhostText: {color: '#fff', fontSize: 14, fontWeight: '700'},
-  nextUpPlay: {
-    flex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 7,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  nextUpPlayFill: {...FILL, overflow: 'hidden'},
-  nextUpPlayText: {color: '#fff', fontSize: 14, fontWeight: '800'},
-  nextUpPlayCount: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
+  nextUpText: {flexShrink: 1, gap: 2},
+  nextUpLabel: {color: 'rgba(255,255,255,0.72)', fontSize: 13},
+  nextUpTitle: {color: '#fff', fontSize: 16, fontWeight: '800'},
+  nextUpSubtitle: {color: '#fff', fontSize: 14},
+  nextUpBadge: {fontWeight: '800'},
+  nextUpClose: {padding: 6, marginLeft: 8},
   errorOverlay: {
     ...FILL,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -3140,13 +3182,13 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
   },
   errorDetail: {
     color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
+    fontSize: 12,
     textAlign: 'center',
   },
   retryButton: {
@@ -3162,7 +3204,8 @@ const styles = StyleSheet.create({
   },
   preview: {
     position: 'absolute',
-    bottom: 44,
+    // Encima de la barra y de la fila de acciones.
+    bottom: 84,
     alignItems: 'center',
     gap: 4,
   },
@@ -3177,15 +3220,41 @@ const styles = StyleSheet.create({
   previewCrop: {transformOrigin: 'top left', overflow: 'hidden'},
   previewTime: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 3,
   },
-  bottomRow: {
+  seekRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
+  },
+  seekFlex: {flex: 1},
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+    paddingBottom: 6,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  actionText: {color: '#fff', fontSize: 13, fontWeight: '700'},
+  tracksColumns: {flexDirection: 'row', gap: 16},
+  tracksColumn: {flex: 1, maxHeight: 300},
+  tracksTitle: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   topRight: {
     flexDirection: 'row',
@@ -3204,22 +3273,19 @@ const styles = StyleSheet.create({
   },
   castTitle: {
     color: '#fff',
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
     textAlign: 'center',
   },
   castDevice: {
     color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
+    fontSize: 12,
     textAlign: 'center',
   },
   time: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 12,
     fontVariant: ['tabular-nums'],
-  },
-  timeDim: {
-    color: 'rgba(255,255,255,0.7)',
   },
   miniTrack: {
     position: 'absolute',
@@ -3252,8 +3318,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 200,
     borderBottomLeftRadius: 200,
   },
-  skipHintArrows: {color: '#fff', fontSize: 24},
-  skipHintText: {color: '#fff', fontSize: 15, marginTop: 4},
+  skipHintArrows: {color: '#fff', fontSize: 22},
+  skipHintText: {color: '#fff', fontSize: 13, marginTop: 4},
   menuBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -3280,15 +3346,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 12,
   },
-  menuBack: {color: '#fff', fontSize: 28, lineHeight: 28},
+  menuBack: {color: '#fff', fontSize: 26, lineHeight: 28},
   menuTitle: {
     color: '#fff',
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
   },
   menuItemValue: {
     color: 'rgba(255,255,255,0.6)',
-    fontSize: 16,
+    fontSize: 14,
     flexShrink: 1,
     marginLeft: 12,
     textAlign: 'right',
@@ -3302,14 +3368,13 @@ const styles = StyleSheet.create({
   },
   menuNote: {
     color: '#aaa',
-    fontSize: 14,
+    fontSize: 12,
     lineHeight: 17,
     paddingHorizontal: 20,
     paddingBottom: 8,
   },
-  menuItemText: {color: '#fff', fontSize: 17},
+  menuItemText: {color: '#fff', fontSize: 15},
   // Con el candado o los episodios, la fila de abajo junta varios botones a la derecha.
-  bottomRight: {flexDirection: 'row', alignItems: 'center', gap: 6},
   unlockPill: {
     position: 'absolute',
     alignSelf: 'center',
@@ -3323,7 +3388,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 24,
   },
-  unlockText: {color: '#fff', fontSize: 15, fontWeight: '700'},
+  unlockText: {color: '#fff', fontSize: 13, fontWeight: '700'},
   // La lista de episodios puede ser larga: en horizontal la hoja no puede crecer más.
   // Más alto que el resto de menús: aquí se elige mirando las imágenes.
   episodeList: {maxHeight: 340},
@@ -3361,17 +3426,17 @@ const styles = StyleSheet.create({
   episodeFill: {height: '100%'},
   episodeNumber: {
     color: 'rgba(255,255,255,0.35)',
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: '800',
   },
   episodeText: {flex: 1, gap: 3},
-  episodeTitle: {color: '#fff', fontSize: 16, fontWeight: '700'},
-  episodeSubtitle: {color: '#aaa', fontSize: 13},
+  episodeTitle: {color: '#fff', fontSize: 15, fontWeight: '700'},
+  episodeSubtitle: {color: '#aaa', fontSize: 12},
   episodeDescription: {
     color: 'rgba(255,255,255,0.6)',
-    fontSize: 13,
+    fontSize: 12,
     lineHeight: 17,
   },
   menuItemActive: {fontWeight: '700'},
-  menuCheck: {color: '#fff', fontSize: 18},
+  menuCheck: {color: '#fff', fontSize: 16},
 });
