@@ -34,4 +34,5 @@ export type {StoryboardSource, StoryboardIndex} from './useStoryboard';
 export {decideOnAppState} from './appStatePause';
 export type {PauseAction, PauseDecision} from './appStatePause';
 export {formatTime} from './format';
+export {setControlsFont} from './Text';
 export * from './icons';

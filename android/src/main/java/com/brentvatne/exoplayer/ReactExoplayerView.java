@@ -81,6 +81,7 @@ import androidx.media3.exoplayer.ima.ImaAdsLoader;
 import androidx.media3.exoplayer.ima.ImaServerSideAdInsertionMediaSource;
 import androidx.media3.exoplayer.ima.ImaServerSideAdInsertionUriBuilder;
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo;
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
 import androidx.media3.exoplayer.rtsp.RtspMediaSource;
 import androidx.media3.exoplayer.smoothstreaming.DefaultSsChunkSource;
@@ -758,6 +759,7 @@ public class ReactExoplayerView extends FrameLayout implements
                 new DefaultRenderersFactory(getContext())
                         .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
                         .setEnableDecoderFallback(true)
+                        .setMediaCodecSelector(ReactExoplayerView::decodersWithoutGoldfish)
                         .forceEnableMediaCodecAsynchronousQueueing();
 
         DefaultMediaSourceFactory mediaSourceFactory;
@@ -899,6 +901,15 @@ public class ReactExoplayerView extends FrameLayout implements
                 Thread.currentThread().interrupt();
                 DebugLog.e(TAG, ex.toString());
             }
+        }
+
+        // Switching videos on a live player would otherwise keep the same codec
+        // instances. Some decoders (the emulator's, at least) then draw the new
+        // picture into a corner of the old buffer with the last frame of the
+        // previous video around it. Stopping first releases them, so every
+        // video starts on fresh decoders, exactly like the first one.
+        if (player.getMediaItemCount() > 0) {
+            player.stop();
         }
 
         boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
@@ -2828,6 +2839,27 @@ public class ReactExoplayerView extends FrameLayout implements
         refreshControlsStyles();
     }
     
+    /**
+     * The emulator's hardware-backed decoders ("goldfish") ignore the crop
+     * rectangle whenever the resolution changes mid-stream (adaptive bitrate,
+     * seeking): the new picture lands in a corner of the old buffer and the
+     * rest keeps a stale frame. They only exist on emulators, so skipping them
+     * changes nothing on real devices.
+     */
+    private static List<MediaCodecInfo> decodersWithoutGoldfish(
+            String mimeType, boolean requiresSecureDecoder, boolean requiresTunnelingDecoder)
+            throws MediaCodecUtil.DecoderQueryException {
+        List<MediaCodecInfo> all = MediaCodecSelector.DEFAULT.getDecoderInfos(
+                mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
+        List<MediaCodecInfo> kept = new ArrayList<>();
+        for (MediaCodecInfo info : all) {
+            if (!info.name.contains("goldfish")) {
+                kept.add(info);
+            }
+        }
+        return kept.isEmpty() ? all : kept;
+    }
+
     /**
      * Checks if the source is a DAI (Dynamic Ad Insertion) request.
      *

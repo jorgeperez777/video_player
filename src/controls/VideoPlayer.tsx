@@ -11,12 +11,12 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   View,
   type GestureResponderEvent,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import Text from './Text';
 import {decideOnAppState} from './appStatePause';
 import {
   CastButton,
@@ -49,7 +49,7 @@ import {formatTime} from './format';
 import {SAVE_EVERY_MS, type PlaybackEvent, type Prefs} from './types';
 import SeekBar from './SeekBar';
 import useCast from './useCast';
-import useNetworkCap, {mbps, MINI_CAP, type DataSaver} from './useNetworkCap';
+import useNetworkCap, {mbps, type DataSaver} from './useNetworkCap';
 import useStoryboard, {type StoryboardSource} from './useStoryboard';
 import {
   AirPlayGlyph,
@@ -61,6 +61,7 @@ import {
   FullscreenIcon,
   LockIcon,
   StopIcon,
+  MiniPlayerIcon,
   PipIcon,
   PauseIcon,
   PlayIcon,
@@ -138,6 +139,12 @@ export type Episode = {
   subtitle?: string;
   /** Ya visto, de 0 a 1, para la barrita de la fila. */
   progress?: number;
+  /** Fotograma o carátula del episodio (16:9). Sin ella, un hueco gris. */
+  image?: string;
+  /** Número del episodio: se ve en grande en el hueco si no hay imagen. */
+  number?: number;
+  /** Sinopsis corta; se recorta a dos líneas. */
+  description?: string;
 };
 
 /**
@@ -257,7 +264,14 @@ type Props = {
    * Qué viene después, para la tarjeta de continuidad de los últimos segundos.
    * `label` cambia el encabezado («Siguiente episodio» en una serie).
    */
-  nextUp?: {title: string; label?: string};
+  nextUp?: {
+    title: string;
+    label?: string;
+    /** Fotograma o carátula (16:9) para la miniatura de la tarjeta. */
+    image?: string;
+    /** Debajo del título: «T1:E3», la duración… */
+    subtitle?: string;
+  };
   /**
    * Lista de episodios: saca el botón ☰ y la hoja para saltar a otro sin salir
    * del reproductor. Sin `episodes` no hay botón.
@@ -493,23 +507,6 @@ export default function VideoPlayer({
   // Tope de bitrate según la red (ver useNetworkCap) y última estimación de ancho
   // de banda que publica ExoPlayer (`reportBandwidth`, solo Android).
   const networkCap = useNetworkCap(dataSaver);
-  /**
-   * El tope que se le pasa al reproductor: el de la red y, encogido en el
-   * miniplayer, el de la miniatura. Manda el más bajo de los dos; con la
-   * calidad fijada a mano no hay tope, que para eso se ha fijado.
-   */
-  const miniBitrate = useMemo(() => {
-    if (quality !== 'auto') {
-      return 0;
-    }
-    if (!compact) {
-      return networkCap.bitrate;
-    }
-    // 0 en `networkCap` es «sin tope», así que no sirve como mínimo.
-    return networkCap.bitrate === 0
-      ? MINI_CAP
-      : Math.min(networkCap.bitrate, MINI_CAP);
-  }, [quality, compact, networkCap.bitrate]);
   // Vista previa de la barra: recorte del storyboard para el instante arrastrado.
   const tileAt = useStoryboard(seekPreview ? storyboard : undefined);
   const [layoutWidth, setLayoutWidth] = useState(0);
@@ -1635,11 +1632,11 @@ export default function VideoPlayer({
         // Tope de datos: solo manda con calidad automática; si el usuario ha fijado
         // una resolución a mano, su elección gana. 0 = sin tope.
         //
-        // Encogido en el miniplayer manda además `MINI_CAP`, y manda el más
-        // bajo de los dos: a ese tamaño no se distingue la calidad, y lo que
-        // se ahorra en decodificar se nota en lo que cuesta navegar por la app
-        // mientras tanto. Al expandir se recupera sola.
-        maxBitRate={miniBitrate}
+        // Encogido en el miniplayer no se baja aparte: cambiar de resolución
+        // al minimizar deja en algunos decodificadores (el del emulador, al
+        // menos) el fotograma pequeño en una esquina del buffer grande, con
+        // el resto congelado.
+        maxBitRate={quality === 'auto' ? networkCap.bitrate : 0}
         reportBandwidth
         onBandwidthUpdate={(e) => {
           setBandwidth(e.bitrate ?? 0);
@@ -1815,16 +1812,39 @@ export default function VideoPlayer({
               style={({pressed}) => [
                 styles.skipIntro,
                 {
-                  bottom: 56 + (fullscreen ? insets.bottom : 0),
-                  right: 16 + (fullscreen ? insets.right : 0),
+                  // Con los controles a la vista sube por encima de la barra;
+                  // sin ellos baja a la esquina, que es donde se busca.
+                  bottom:
+                    (controlsVisible ? 96 : 32) +
+                    (fullscreen ? insets.bottom : 0),
+                  right: 24 + (fullscreen ? insets.right : 0),
                 },
-                pressed && styles.dimmed,
+                pressed && styles.skipIntroPressed,
               ]}
               onPress={() => {
                 seekTo(currentChapter.end);
                 touch();
               }}>
+              <TrackIcon direction="next" size={18} />
               <Text style={styles.skipIntroText}>{t('chapter.skipIntro')}</Text>
+              {/* Lo que queda de intro, llenándose por debajo. */}
+              <View
+                style={[
+                  styles.skipIntroFill,
+                  {
+                    backgroundColor: accent,
+                    width: `${Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((displayTime - currentChapter.start) /
+                          (currentChapter.end - currentChapter.start)) *
+                          100,
+                      ),
+                    )}%`,
+                  },
+                ]}
+              />
             </Pressable>
           )}
 
@@ -1834,19 +1854,40 @@ export default function VideoPlayer({
               style={[
                 styles.nextUp,
                 {
-                  bottom: 56 + (fullscreen ? insets.bottom : 0),
-                  right: 12 + (fullscreen ? insets.right : 0),
+                  // Como «saltar intro»: por encima de la barra si se ve.
+                  bottom:
+                    (controlsVisible ? 96 : 32) +
+                    (fullscreen ? insets.bottom : 0),
+                  right: 16 + (fullscreen ? insets.right : 0),
                 },
               ]}>
-              <Text style={styles.nextUpLabel}>
-                {nextUp.label ?? t('next.upNext')}
-              </Text>
-              <Text style={styles.nextUpTitle} numberOfLines={1}>
-                {nextUp.title}
-              </Text>
-              <Text style={styles.nextUpCountdown}>
-                {t('next.inSeconds', {seconds: Math.ceil(remaining)})}
-              </Text>
+              <View style={styles.nextUpBody}>
+                <View style={styles.nextUpThumb}>
+                  {nextUp.image ? (
+                    <Image
+                      source={{uri: nextUp.image}}
+                      style={StyleSheet.absoluteFill}
+                      resizeMode="cover"
+                    />
+                  ) : null}
+                  <View style={styles.nextUpThumbPlay}>
+                    <PlayIcon size={16} />
+                  </View>
+                </View>
+                <View style={styles.nextUpText}>
+                  <Text style={styles.nextUpLabel}>
+                    {nextUp.label ?? t('next.upNext')}
+                  </Text>
+                  <Text style={styles.nextUpTitle} numberOfLines={1}>
+                    {nextUp.title}
+                  </Text>
+                  {nextUp.subtitle ? (
+                    <Text style={styles.nextUpSubtitle} numberOfLines={1}>
+                      {nextUp.subtitle}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
               <View style={styles.nextUpButtons}>
                 <Pressable
                   accessibilityRole="button"
@@ -1860,18 +1901,37 @@ export default function VideoPlayer({
                   }}>
                   <Text style={styles.nextUpGhostText}>{t('next.cancel')}</Text>
                 </Pressable>
+                {/* Reproducir ya: del color de la barra de progreso, con los
+                    segundos que faltan para que salte solo. */}
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel={`${t('next.playNow')}. ${t(
+                    'next.inSeconds',
+                    {seconds: Math.ceil(remaining)},
+                  )}`}
                   style={({pressed}) => [
                     styles.nextUpPlay,
-                    {backgroundColor: accent},
                     pressed && styles.dimmed,
                   ]}
                   onPress={() => {
                     onNext?.();
                     touch();
                   }}>
+                  <View
+                    style={[styles.nextUpPlayFill, {backgroundColor: accent}]}>
+                    {accentGradient ? (
+                      <Image
+                        source={{uri: accentGradient}}
+                        style={StyleSheet.absoluteFill}
+                        resizeMode="stretch"
+                      />
+                    ) : null}
+                  </View>
+                  <PlayIcon size={13} />
                   <Text style={styles.nextUpPlayText}>{t('next.playNow')}</Text>
+                  <Text style={styles.nextUpPlayCount}>
+                    {Math.ceil(remaining)}
+                  </Text>
                 </Pressable>
               </View>
             </View>
@@ -1979,8 +2039,9 @@ export default function VideoPlayer({
                 {/* ⌄ minimizar: siempre que la app ofrezca miniplayer, también
                 a pantalla completa. Convive con el ⤢ porque no hacen lo mismo:
                 ⤢ devuelve el vídeo a su hueco y ⌄ lo manda a la miniatura para
-                seguir navegando, como en YouTube. */}
-                {onMinimize && (
+                seguir navegando, como en YouTube. Solo en directo: una
+                película o un episodio llevan el suyo arriba a la derecha. */}
+                {onMinimize && isLive && (
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={t('a11y.minimize')}
@@ -2054,6 +2115,21 @@ export default function VideoPlayer({
                         />
                       </Pressable>
                     )}
+                  {/* Miniplayer de películas y series: su propio icono junto al
+                      de PiP (el ⌄ junto al título queda para los directos). */}
+                  {onMinimize && !isLive && (
+                    <Pressable
+                      hitSlop={12}
+                      style={styles.iconButton}
+                      onPress={() => {
+                        onMinimize();
+                        touch();
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('a11y.minimize')}>
+                      <MiniPlayerIcon />
+                    </Pressable>
+                  )}
                   {pipButton &&
                     pipSupported &&
                     !playerError &&
@@ -2139,11 +2215,11 @@ export default function VideoPlayer({
                           : t('a11y.pause')
                       }>
                       {ended && !casting ? (
-                        <ReplayIcon size={40} />
+                        <ReplayIcon size={50} />
                       ) : uiPaused ? (
-                        <PlayIcon size={34} />
+                        <PlayIcon size={46} />
                       ) : (
-                        <PauseIcon size={34} />
+                        <PauseIcon size={46} />
                       )}
                     </Pressable>
                     {skipButtons && (
@@ -2434,6 +2510,9 @@ export default function VideoPlayer({
                   paddingRight: insets.right,
                 },
               ]}>
+              {/* La raya de arriba: dice que es una hoja que se cierra
+                  bajándola (o tocando fuera), como las del sistema. */}
+              <View style={styles.menuHandle} />
               {menu === 'main' && (
                 <>
                   <MenuRow
@@ -2708,6 +2787,11 @@ function MenuRow({
 }
 
 /** Fila de la hoja de episodios: título, línea de detalle y lo ya visto. */
+/**
+ * Una fila del listado de episodios, al estilo de Netflix: la miniatura con lo
+ * ya visto en su borde inferior, el título, los datos y la sinopsis corta. El
+ * que suena lleva «▶» sobre la imagen y el título en el color de acento.
+ */
 function EpisodeRow({
   episode,
   current,
@@ -2719,40 +2803,60 @@ function EpisodeRow({
   accent: string;
   onPress: () => void;
 }) {
+  const progress = Math.min(1, Math.max(0, episode.progress ?? 0));
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{selected: current}}
-      style={({pressed}) => [styles.episodeRow, pressed && styles.dimmed]}
+      style={({pressed}) => [
+        styles.episodeRow,
+        current && styles.episodeRowCurrent,
+        pressed && styles.dimmed,
+      ]}
       onPress={onPress}>
-      <View style={styles.episodeText}>
-        <Text
-          style={[styles.menuItemText, current && {color: accent}]}
-          numberOfLines={1}>
-          {episode.title}
-        </Text>
-        {episode.subtitle ? (
-          <Text style={styles.episodeSubtitle} numberOfLines={2}>
-            {episode.subtitle}
-          </Text>
+      <View style={styles.episodeThumb}>
+        {episode.image ? (
+          <Image
+            source={{uri: episode.image}}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+          />
+        ) : episode.number !== undefined && !current ? (
+          <Text style={styles.episodeNumber}>{episode.number}</Text>
         ) : null}
-        {episode.progress !== undefined && episode.progress > 0 ? (
+        {current ? (
+          <View style={styles.episodeNow}>
+            <PlayIcon size={22} />
+          </View>
+        ) : null}
+        {progress > 0 ? (
           <View style={styles.episodeTrack}>
             <View
               style={[
                 styles.episodeFill,
-                {
-                  backgroundColor: accent,
-                  width: `${Math.min(100, episode.progress * 100)}%`,
-                },
+                {backgroundColor: accent, width: `${progress * 100}%`},
               ]}
             />
           </View>
         ) : null}
       </View>
-      {current ? (
-        <Text style={[styles.menuCheck, {color: accent}]}>▶</Text>
-      ) : null}
+      <View style={styles.episodeText}>
+        <Text
+          style={[styles.episodeTitle, current && {color: accent}]}
+          numberOfLines={1}>
+          {episode.title}
+        </Text>
+        {episode.subtitle ? (
+          <Text style={styles.episodeSubtitle} numberOfLines={1}>
+            {episode.subtitle}
+          </Text>
+        ) : null}
+        {episode.description ? (
+          <Text style={styles.episodeDescription} numberOfLines={2}>
+            {episode.description}
+          </Text>
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -2822,7 +2926,9 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     color: '#fff',
-    fontSize: 14,
+    // A juego con los iconos de la barra, que se dibujan al 130% (ver `SCALE`
+    // en `icons`): con 14 el título quedaba pequeño a su lado.
+    fontSize: 19,
     fontWeight: '600',
     marginHorizontal: 8,
   },
@@ -2834,7 +2940,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 4,
   },
-  castDeviceRowText: {color: 'rgba(255,255,255,0.8)', fontSize: 12},
+  castDeviceRowText: {color: 'rgba(255,255,255,0.8)', fontSize: 14},
   centerRow: {
     flex: 1,
     flexDirection: 'row',
@@ -2850,9 +2956,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   playButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2887,7 +2993,7 @@ const styles = StyleSheet.create({
   },
   liveText: {
     color: '#fff',
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -2903,7 +3009,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 14,
   },
-  offlineText: {color: '#fff', fontSize: 12, fontWeight: '600'},
+  offlineText: {color: '#fff', fontSize: 14, fontWeight: '600'},
   boostBadge: {
     position: 'absolute',
     top: 8,
@@ -2916,7 +3022,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 14,
   },
-  boostText: {color: '#fff', fontSize: 13, fontWeight: '700'},
+  boostText: {color: '#fff', fontSize: 15, fontWeight: '700'},
   dimVeil: {...FILL, backgroundColor: '#000'},
   hud: {
     position: 'absolute',
@@ -2930,7 +3036,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
   },
-  hudLabel: {color: '#fff', fontSize: 13, fontWeight: '700'},
+  hudLabel: {color: '#fff', fontSize: 15, fontWeight: '700'},
   hudTrack: {
     width: 120,
     height: 4,
@@ -2941,42 +3047,89 @@ const styles = StyleSheet.create({
   hudFill: {height: '100%'},
   skipIntro: {
     position: 'absolute',
-    right: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.7)',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: 'rgba(20,20,22,0.75)',
+    paddingLeft: 16,
+    paddingRight: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+    // Por encima del velo de los controles: si no, con ellos a la vista se
+    // veía apagado, como deshabilitado.
+    zIndex: 10,
   },
-  skipIntroText: {color: '#fff', fontSize: 13, fontWeight: '700'},
+  skipIntroPressed: {backgroundColor: 'rgba(255,255,255,0.2)'},
+  skipIntroText: {color: '#fff', fontSize: 16, fontWeight: '700'},
+  skipIntroFill: {position: 'absolute', left: 0, bottom: 0, height: 3},
   nextUp: {
     position: 'absolute',
-    right: 12,
-    maxWidth: 300,
-    backgroundColor: 'rgba(0,0,0,0.82)',
+    width: 300,
+    maxWidth: '60%',
+    backgroundColor: 'rgba(20,20,22,0.94)',
     borderRadius: 10,
-    padding: 12,
-    gap: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.15)',
+    padding: 10,
+    gap: 10,
+    // Por encima del velo de los controles (ver `skipIntro`).
+    zIndex: 10,
   },
+  nextUpBody: {flexDirection: 'row', gap: 10, alignItems: 'center'},
+  nextUpThumb: {
+    width: 88,
+    aspectRatio: 16 / 9,
+    borderRadius: 5,
+    overflow: 'hidden',
+    backgroundColor: '#2a2a2e',
+  },
+  nextUpThumbPlay: {
+    ...FILL,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  nextUpText: {flex: 1, gap: 1},
   nextUpLabel: {
     color: '#aaa',
     fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
   },
-  nextUpTitle: {color: '#fff', fontSize: 14, fontWeight: '700'},
-  nextUpCountdown: {color: '#aaa', fontSize: 12, marginBottom: 6},
-  nextUpButtons: {flexDirection: 'row', gap: 8, justifyContent: 'flex-end'},
+  nextUpTitle: {color: '#fff', fontSize: 15, fontWeight: '800'},
+  nextUpSubtitle: {color: '#aaa', fontSize: 12},
+  nextUpButtons: {flexDirection: 'row', gap: 8},
   nextUpGhost: {
-    paddingHorizontal: 12,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 7,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
-  nextUpGhostText: {color: '#fff', fontSize: 12, fontWeight: '600'},
-  nextUpPlay: {paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16},
-  nextUpPlayText: {color: '#fff', fontSize: 12, fontWeight: '700'},
+  nextUpGhostText: {color: '#fff', fontSize: 14, fontWeight: '700'},
+  nextUpPlay: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  nextUpPlayFill: {...FILL, overflow: 'hidden'},
+  nextUpPlayText: {color: '#fff', fontSize: 14, fontWeight: '800'},
+  nextUpPlayCount: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
   errorOverlay: {
     ...FILL,
     backgroundColor: 'rgba(0,0,0,0.85)',
@@ -2987,13 +3140,13 @@ const styles = StyleSheet.create({
   },
   errorTitle: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     textAlign: 'center',
   },
   errorDetail: {
     color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
+    fontSize: 14,
     textAlign: 'center',
   },
   retryButton: {
@@ -3024,7 +3177,7 @@ const styles = StyleSheet.create({
   previewCrop: {transformOrigin: 'top left', overflow: 'hidden'},
   previewTime: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowRadius: 3,
@@ -3051,18 +3204,18 @@ const styles = StyleSheet.create({
   },
   castTitle: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '600',
     textAlign: 'center',
   },
   castDevice: {
     color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
+    fontSize: 14,
     textAlign: 'center',
   },
   time: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 14,
     fontVariant: ['tabular-nums'],
   },
   timeDim: {
@@ -3099,8 +3252,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 200,
     borderBottomLeftRadius: 200,
   },
-  skipHintArrows: {color: '#fff', fontSize: 22},
-  skipHintText: {color: '#fff', fontSize: 13, marginTop: 4},
+  skipHintArrows: {color: '#fff', fontSize: 24},
+  skipHintText: {color: '#fff', fontSize: 15, marginTop: 4},
   menuBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -3109,7 +3262,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#212121',
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
-    paddingVertical: 8,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  menuHandle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    marginBottom: 6,
   },
   menuHeader: {
     flexDirection: 'row',
@@ -3118,15 +3280,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     gap: 12,
   },
-  menuBack: {color: '#fff', fontSize: 26, lineHeight: 28},
+  menuBack: {color: '#fff', fontSize: 28, lineHeight: 28},
   menuTitle: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '600',
   },
   menuItemValue: {
     color: 'rgba(255,255,255,0.6)',
-    fontSize: 14,
+    fontSize: 16,
     flexShrink: 1,
     marginLeft: 12,
     textAlign: 'right',
@@ -3140,12 +3302,12 @@ const styles = StyleSheet.create({
   },
   menuNote: {
     color: '#aaa',
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 17,
     paddingHorizontal: 20,
     paddingBottom: 8,
   },
-  menuItemText: {color: '#fff', fontSize: 15},
+  menuItemText: {color: '#fff', fontSize: 17},
   // Con el candado o los episodios, la fila de abajo junta varios botones a la derecha.
   bottomRight: {flexDirection: 'row', alignItems: 'center', gap: 6},
   unlockPill: {
@@ -3161,27 +3323,55 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 24,
   },
-  unlockText: {color: '#fff', fontSize: 13, fontWeight: '700'},
+  unlockText: {color: '#fff', fontSize: 15, fontWeight: '700'},
   // La lista de episodios puede ser larga: en horizontal la hoja no puede crecer más.
-  episodeList: {maxHeight: 260},
+  // Más alto que el resto de menús: aquí se elige mirando las imágenes.
+  episodeList: {maxHeight: 340},
   episodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  episodeText: {flex: 1, gap: 3},
-  episodeSubtitle: {color: '#aaa', fontSize: 12, lineHeight: 16},
-  episodeTrack: {
-    height: 3,
-    marginTop: 3,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+  episodeRowCurrent: {backgroundColor: 'rgba(255,255,255,0.06)'},
+  episodeThumb: {
+    width: 136,
+    aspectRatio: 16 / 9,
+    borderRadius: 6,
     overflow: 'hidden',
+    backgroundColor: '#2a2a2e',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  episodeNow: {
+    ...FILL,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  episodeTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
   episodeFill: {height: '100%'},
+  episodeNumber: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 30,
+    fontWeight: '800',
+  },
+  episodeText: {flex: 1, gap: 3},
+  episodeTitle: {color: '#fff', fontSize: 16, fontWeight: '700'},
+  episodeSubtitle: {color: '#aaa', fontSize: 13},
+  episodeDescription: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    lineHeight: 17,
+  },
   menuItemActive: {fontWeight: '700'},
-  menuCheck: {color: '#fff', fontSize: 16},
+  menuCheck: {color: '#fff', fontSize: 18},
 });
